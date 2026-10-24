@@ -210,6 +210,30 @@ Game controller options:
         (Private Gridrunner fork.) Where the --stick-to-swipe/--mouse-to-swipe
         finger touches down, as x,y in screen points. Default: screen centre.
 
+    --stick-to-icade
+        (Private Gridrunner fork.) The left stick types the letters an iCade
+        arcade cabinet sends for its joystick, for apps with iCade support.
+        Pushing a direction past about a third of its travel holds it;
+        diagonals hold two directions.
+
+    --icade-analog=...
+        (Private Gridrunner fork.) Patches Gridrunner 1.02 so that, with
+        --stick-to-icade, the ship's speed follows how far the left stick is
+        pushed instead of the iCade's on/off directions. The value is how much
+        the ship may speed up per game tick, as a fraction of the game's full
+        speed (its own iCade movement uses 0.08), optionally followed by a top
+        speed (default 1, the game's own), e.g. --icade-analog=0.0625,1.25.
+        Easing off, letting go and reversing take effect immediately.
+
+    --stick-mode-toggle=...
+        (Private Gridrunner fork.) Pressing this button (any button name
+        accepted by --button-to-touch, or Back) switches the --stick-to-swipe
+        finger to a virtual stick and back. As a virtual stick, the finger is
+        held at the swipe origin while the stick is pushed, displaced by up to
+        the given radius in screen points, e.g. --stick-mode-toggle=Back,80.
+        Combine with --button-to-touch on the same button to also tap the
+        app's own control-type button.
+
     --stabilize-virtual-cursor=...
         Apply motion smoothing and a sticky radius to the virtual cursor
         (controlled by the right analog stick).

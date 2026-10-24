@@ -7,13 +7,20 @@
 # Each line in this file specifies options for an app; there should only be one
 # line per app. A line should consist of the identifier for an app, followed by
 # a colon (:), followed by the options to apply. To find out an app's
-# identifier, you can run it in touchHLE and look at the “App bundle info”
+# identifier, you can run it in touchHLE and look at the â€œApp bundle infoâ€
 # output. To get a list of possible options, see OPTIONS_HELP.txt or run
 # touchHLE with the --help flag.
 #
 # Text on a line following a hash sign (#) is treated as a comment and ignored.
 # Empty lines are also ignored.
 
-# Private Gridrunner setup: left stick drives a touch "joystick" in the lower
-# middle of the screen; the stick no longer tilts the virtual device.
-uk.co.llamasoft.gridrunner: --device-family=ipad --disable-analog-stick-tilt-controls --stick-to-swipe=1000 --mouse-to-swipe=1 --button-to-touch=A,384,800 --dpi-aware --nearest-present --integer-scaling --fullscreen
+# Private Gridrunner setup. Only one line can be active; swap the "#" to switch.
+#
+# Touch controls: left stick sweeps a finger; Back taps Novice and switches the
+# stick to a virtual stick. The stick no longer tilts the virtual device.
+# uk.co.llamasoft.gridrunner: --device-family=ipad --disable-analog-stick-tilt-controls --stick-to-swipe=1000 --mouse-to-swipe=1 --swipe-origin=384,620 --button-to-touch=A,384,800 --button-to-touch=Y,384,432 --button-to-touch=DPadLeft,58,432 --button-to-touch=DPadRight,710,432 --button-to-touch=Start,384,307 --button-to-touch=Back,384,800 --stick-mode-toggle=Back,150 --deadzone=0.15 --dpi-aware --nearest-present --integer-scaling --fullscreen
+#
+# iCade controls: left stick acts as an iCade joystick, with analog speed
+# (--icade-analog=ACCELERATION,TOP_SPEED, relative to the game's own; remove it
+# for the game's own digital iCade movement).
+uk.co.llamasoft.gridrunner: --device-family=ipad --disable-analog-stick-tilt-controls --stick-to-icade --icade-analog=0.0625,1.25 --mouse-to-swipe=1 --swipe-origin=384,620 --button-to-touch=A,384,800 --button-to-touch=Y,384,432 --button-to-touch=DPadLeft,58,432 --button-to-touch=DPadRight,710,432 --button-to-touch=Start,384,307 --deadzone=0.15 --dpi-aware --nearest-present --integer-scaling --fullscreen

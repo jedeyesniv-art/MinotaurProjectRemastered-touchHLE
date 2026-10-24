@@ -535,6 +535,8 @@ impl Environment {
                     // it some room.
                     env.cpu.regs_mut()[Cpu::SP] = 0xFFFFF000;
 
+                    crate::gridrunner::apply_patch(env);
+
                     // Call `+load` method on classes where it's defined.
                     // TODO: `+load` methods from our image should take priority
                     // over frameworks ones.

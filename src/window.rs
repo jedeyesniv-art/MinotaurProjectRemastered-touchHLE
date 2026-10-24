@@ -251,6 +251,12 @@ pub struct Window {
     stick_swipe_pos: Option<(f32, f32)>,
     stick_swipe_last_update: Instant,
     swipe_last_activity: Instant,
+    /// The swipe finger stays up until this time (see button-to-touch).
+    swipe_blocked_until: Instant,
+    /// The swipe finger acts as a virtual stick (see `--stick-mode-toggle`).
+    virtual_stick: bool,
+    /// iCade directions currently held: up, right, down, left.
+    icade_dirs: [bool; 4],
     /// Mouse movement not yet applied to the swipe finger, in screen points.
     mouse_swipe_delta: (f32, f32),
     mouse_swipe_sensitivity: f32,
@@ -422,6 +428,9 @@ impl Window {
             stick_swipe_pos: None,
             stick_swipe_last_update: Instant::now(),
             swipe_last_activity: Instant::now(),
+            swipe_blocked_until: Instant::now(),
+            virtual_stick: false,
+            icade_dirs: [false; 4],
             mouse_swipe_delta: (0.0, 0.0),
             mouse_swipe_sensitivity: options.mouse_to_swipe.unwrap_or(1.0),
             cursor_hidden: false,
@@ -515,6 +524,7 @@ impl Window {
                 sdl2::controller::Button::LeftShoulder => {
                     Some(crate::options::Button::LeftShoulder)
                 }
+                sdl2::controller::Button::Back => Some(crate::options::Button::Back),
                 _ => None,
             }
         }
@@ -545,6 +555,34 @@ impl Window {
             } else {
                 break;
             };
+
+            // Private fork: before a button-to-touch tap, lift the swipe
+            // finger so the app sees a lone tap, and keep it up briefly so it
+            // doesn't come straight back.
+            if let E::ControllerButtonDown { button, .. } = event {
+                let button = translate_button(button);
+                let toggles = button.is_some_and(|b| {
+                    options.stick_mode_toggle.is_some_and(|(toggle, _)| toggle == b)
+                });
+                if toggles {
+                    self.virtual_stick = !self.virtual_stick;
+                    log!(
+                        "Left stick now drives a {}.",
+                        if self.virtual_stick { "virtual stick" } else { "swipe" }
+                    );
+                }
+                let mapped = button.is_some_and(|b| options.button_to_touch.contains_key(&b));
+                if mapped || toggles {
+                    self.swipe_blocked_until = Instant::now() + Duration::from_millis(250);
+                    if let Some(pos) = self.stick_swipe_pos.take() {
+                        let coords = transform_input_coords(self, pos, true);
+                        self.event_queue.push_back(Event::TouchesUp(HashMap::from([(
+                            FingerId::StickToTouch,
+                            coords,
+                        )])));
+                    }
+                }
+            }
 
             if options.mouse_to_swipe.is_some() {
                 if let E::MouseMotion {
@@ -906,6 +944,14 @@ impl Window {
             }
         }
 
+        if options.stick_to_icade {
+            let text = self.update_stick_icade(options);
+            if !text.is_empty() {
+                self.event_queue
+                    .push_back(Event::TextInput(TextInputEvent::Text(text)));
+            }
+        }
+
         if controller_updated {
             let (new_x, new_y, pressed, pressed_changed, moved) =
                 self.update_virtual_cursor(options);
@@ -1100,6 +1146,18 @@ impl Window {
             .min(0.05);
         self.stick_swipe_last_update = now;
 
+        let (w, h) = size_for_orientation(
+            self.device_family,
+            self.device_orientation,
+            NonZeroU32::new(1).unwrap(),
+        );
+        let (w, h) = (w as f32, h as f32);
+        let origin = options.swipe_origin.unwrap_or((w / 2.0, h / 2.0));
+
+        if self.virtual_stick {
+            return self.update_virtual_stick(options, now, origin);
+        }
+
         let (sx, sy) = if let Some(speed) = options.stick_to_swipe {
             let (sx, sy, _) = self.get_controller_stick(options, true);
             (sx.clamp(-1.0, 1.0) * speed * dt, sy.clamp(-1.0, 1.0) * speed * dt)
@@ -1117,18 +1175,11 @@ impl Window {
         }
         let idle = now.saturating_duration_since(self.swipe_last_activity) > IDLE_RELEASE;
 
-        let (w, h) = size_for_orientation(
-            self.device_family,
-            self.device_orientation,
-            NonZeroU32::new(1).unwrap(),
-        );
-        let (w, h) = (w as f32, h as f32);
-        let origin = options.swipe_origin.unwrap_or((w / 2.0, h / 2.0));
         let margin = w.min(h) * 0.1;
 
         let mut events = Vec::new();
         match self.stick_swipe_pos {
-            None if !idle => {
+            None if !idle && now >= self.swipe_blocked_until => {
                 events.push((SwipeEvent::Down, origin));
                 self.stick_swipe_pos = Some(origin);
             }
@@ -1150,6 +1201,78 @@ impl Window {
             }
         }
         events
+    }
+
+    /// Virtual stick mode of [Self::update_stick_swipe]: while the left stick
+    /// is pushed, the finger is held down at the origin and displaced by the
+    /// stick, up to the `--stick-mode-toggle` radius. The mouse is ignored.
+    fn update_virtual_stick(
+        &mut self,
+        options: &Options,
+        now: Instant,
+        origin: (f32, f32),
+    ) -> Vec<(SwipeEvent, (f32, f32))> {
+        self.mouse_swipe_delta = (0.0, 0.0);
+        let radius = options.stick_mode_toggle.map_or(0.0, |(_, r)| r);
+        let (x, y, _) = self.get_controller_stick(options, true);
+        let held = x != 0.0 || y != 0.0;
+        let target = (
+            origin.0 + x.clamp(-1.0, 1.0) * radius,
+            origin.1 + y.clamp(-1.0, 1.0) * radius,
+        );
+
+        let mut events = Vec::new();
+        match self.stick_swipe_pos {
+            None if held && now >= self.swipe_blocked_until => {
+                // Touch down at the centre first, so a stick that appears
+                // where the finger lands is centred there.
+                events.push((SwipeEvent::Down, origin));
+                events.push((SwipeEvent::Move, target));
+                self.stick_swipe_pos = Some(target);
+            }
+            Some(pos) if !held => {
+                events.push((SwipeEvent::Up, pos));
+                self.stick_swipe_pos = None;
+            }
+            Some(pos) if pos != target => {
+                events.push((SwipeEvent::Move, target));
+                self.stick_swipe_pos = Some(target);
+            }
+            _ => (),
+        }
+        events
+    }
+
+    /// `--stick-to-icade` (private fork): turn the left stick into iCade
+    /// joystick directions, returning the letters an iCade would type for any
+    /// that were pressed or released (diagonals are two directions at once).
+    fn update_stick_icade(&mut self, options: &Options) -> String {
+        // iCade sends one letter when a direction is pressed and another when
+        // it is released, in this order: up, right, down, left.
+        const PRESS: [char; 4] = ['w', 'd', 'x', 'a'];
+        const RELEASE: [char; 4] = ['e', 'c', 'z', 'q'];
+        // Fraction of the travel beyond the deadzone that counts as pushed.
+        // With --icade-analog the game takes the stick's real position, so
+        // any push beyond the deadzone counts.
+        let threshold = if options.icade_analog.is_some() { 0.0 } else { 0.35 };
+
+        let (x, y, _) = self.get_controller_stick(options, true);
+        let held = [y < -threshold, x > threshold, y > threshold, x < -threshold];
+        let mut text = String::new();
+        for i in 0..4 {
+            if held[i] != self.icade_dirs[i] {
+                text.push(if held[i] { PRESS[i] } else { RELEASE[i] });
+            }
+        }
+        self.icade_dirs = held;
+        text
+    }
+
+    /// Private fork: the left stick's position after the deadzone, each axis
+    /// in [-1, 1].
+    pub fn left_stick(&self, options: &Options) -> (f32, f32) {
+        let (x, y, _) = self.get_controller_stick(options, true);
+        (x, y)
     }
 
     /// `--mouse-to-swipe` (private fork): accumulate mouse movement for

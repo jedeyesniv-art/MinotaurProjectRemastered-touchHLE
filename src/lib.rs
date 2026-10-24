@@ -39,6 +39,7 @@ mod frameworks;
 mod fs;
 mod gdb;
 mod gles;
+mod gridrunner;
 mod image;
 mod libc;
 mod licenses;
@@ -114,7 +115,20 @@ Special options:
         Print basic information about the app bundle without running the app.
 ";
 
+/// Private fork: panics only go to stderr by default, which vanishes with the
+/// console window, so put them in the log file too.
+#[cfg(not(target_os = "android"))]
+fn log_panics() {
+    let default_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        log!("{}", info);
+        default_hook(info);
+    }));
+}
+
 pub fn main<T: Iterator<Item = String>>(mut args: T) -> Result<(), String> {
+    #[cfg(not(target_os = "android"))]
+    log_panics();
     echo!(
         "touchHLE {}{}{} — https://touchhle.org/",
         branding(),

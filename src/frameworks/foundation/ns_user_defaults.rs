@@ -11,7 +11,7 @@
 use super::{ns_string, NSInteger};
 use crate::frameworks::foundation::ns_string::to_rust_string;
 use crate::objc::{
-    autorelease, id, msg, msg_class, nil, objc_classes, release, Class, ClassExports, HostObject,
+    autorelease, id, msg, msg_class, nil, objc_classes, release, retain, Class, ClassExports, HostObject,
     NSZonePtr,
 };
 use crate::Environment;
@@ -147,17 +147,20 @@ pub const CLASSES: ClassExports = objc_classes! {
 - (id)objectForKey:(id)key { // NSString*
     // TODO: check if order of searching is correct
     let app_domain_dict = env.objc.borrow::<NSUserDefaultsHostObject>(this).app_domain_dict;
-    let res: id = msg![env; app_domain_dict objectForKey:key];
-    if res != nil {
-        return res;
+    let mut res: id = msg![env; app_domain_dict objectForKey:key];
+    if res == nil {
+        let global_domain_dict = env.objc.borrow::<NSUserDefaultsHostObject>(this).global_domain_dict;
+        res = msg![env; global_domain_dict objectForKey:key];
     }
-    let global_domain_dict = env.objc.borrow::<NSUserDefaultsHostObject>(this).global_domain_dict;
-    let res = msg![env; global_domain_dict objectForKey:key];
-    if res != nil {
-        return res;
+    if res == nil {
+        let registration_domain_dict = env.objc.borrow::<NSUserDefaultsHostObject>(this).registration_domain_dict;
+        res = msg![env; registration_domain_dict objectForKey:key];
     }
-    let registration_domain_dict = env.objc.borrow::<NSUserDefaultsHostObject>(this).registration_domain_dict;
-    msg![env; registration_domain_dict objectForKey:key]
+    // Private fork: Gridrunner releases the object it gets from here (an
+    // over-release that real iOS tolerates), which would free the value still
+    // stored in the dictionary. Hand out a deliberately leaked reference so
+    // that release is harmless.
+    retain(env, res)
 }
 
 - (())registerDefaults:(id)registration_dictionary {

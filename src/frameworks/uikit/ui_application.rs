@@ -146,6 +146,11 @@ pub const CLASSES: ClassExports = objc_classes! {
     msg![env; this setStatusBarOrientation:orientation]
 }
 
+// Private fork.
+- (NSInteger)applicationState {
+    0 // UIApplicationStateActive
+}
+
 - (bool)isIdleTimerDisabled {
     !env.window().is_screen_saver_enabled()
 }

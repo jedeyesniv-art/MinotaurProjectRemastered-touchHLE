@@ -29,6 +29,25 @@ pub enum Button {
     X,
     Y,
     LeftShoulder,
+    /// Private fork.
+    Back,
+}
+
+fn parse_button(name: &str, option: &str) -> Result<Button, String> {
+    match name {
+        "DPadLeft" => Ok(Button::DPadLeft),
+        "DPadUp" => Ok(Button::DPadUp),
+        "DPadRight" => Ok(Button::DPadRight),
+        "DPadDown" => Ok(Button::DPadDown),
+        "Start" => Ok(Button::Start),
+        "A" => Ok(Button::A),
+        "B" => Ok(Button::B),
+        "X" => Ok(Button::X),
+        "Y" => Ok(Button::Y),
+        "LeftShoulder" => Ok(Button::LeftShoulder),
+        "Back" => Ok(Button::Back),
+        _ => Err(format!("Invalid button for {option}")),
+    }
 }
 
 /// Struct containing all user-configurable options.
@@ -64,6 +83,14 @@ pub struct Options {
     pub mouse_to_swipe: Option<f32>,
     /// Private fork: where the swipe finger touches down (screen points).
     pub swipe_origin: Option<(f32, f32)>,
+    /// Private fork: this button switches the swipe finger to a virtual stick
+    /// of this radius (screen points) at the swipe origin, and back.
+    pub stick_mode_toggle: Option<(Button, f32)>,
+    /// Private fork: the left stick types iCade joystick letters.
+    pub stick_to_icade: bool,
+    /// Private fork: see [crate::gridrunner]. Acceleration per game tick and
+    /// top speed, both relative to the game's own full speed.
+    pub icade_analog: Option<(f32, f32)>,
     pub stabilize_virtual_cursor: Option<(f32, f32)>,
     pub gles1_implementation: Option<GLESImplementation>,
     pub direct_memory_access: bool,
@@ -105,6 +132,9 @@ impl Default for Options {
             stick_to_swipe: None,
             mouse_to_swipe: None,
             swipe_origin: None,
+            stick_mode_toggle: None,
+            stick_to_icade: false,
+            icade_analog: None,
             stabilize_virtual_cursor: None,
             gles1_implementation: None,
             direct_memory_access: true,
@@ -186,19 +216,7 @@ impl Options {
             let (x, y) = coords
                 .split_once(',')
                 .ok_or_else(|| "--button-to-touch= requires three values".to_string())?;
-            let button = match button {
-                "DPadLeft" => Ok(Button::DPadLeft),
-                "DPadUp" => Ok(Button::DPadUp),
-                "DPadRight" => Ok(Button::DPadRight),
-                "DPadDown" => Ok(Button::DPadDown),
-                "Start" => Ok(Button::Start),
-                "A" => Ok(Button::A),
-                "B" => Ok(Button::B),
-                "X" => Ok(Button::X),
-                "Y" => Ok(Button::Y),
-                "LeftShoulder" => Ok(Button::LeftShoulder),
-                _ => Err("Invalid button for --button-to-touch=".to_string()),
-            }?;
+            let button = parse_button(button, "--button-to-touch=")?;
             let x: f32 = x
                 .parse()
                 .map_err(|_| "Invalid X co-ordinate for --button-to-touch=".to_string())?;
@@ -237,6 +255,32 @@ impl Options {
                 .filter(|&s: &f32| s > 0.0)
                 .ok_or_else(|| "--stick-to-swipe= requires a positive speed".to_string())?;
             self.stick_to_swipe = Some(speed);
+        } else if arg == "--stick-to-icade" {
+            self.stick_to_icade = true;
+        } else if let Some(value) = arg.strip_prefix("--icade-analog=") {
+            let (accel, top_speed) = value.split_once(',').unwrap_or((value, "1"));
+            let accel: f32 = accel
+                .parse()
+                .ok()
+                .filter(|&a: &f32| a > 0.0 && a <= 2.0)
+                .ok_or_else(|| "--icade-analog= requires an acceleration in (0, 2]".to_string())?;
+            let top_speed: f32 = top_speed
+                .parse()
+                .ok()
+                .filter(|&s: &f32| s > 0.0 && s <= 4.0)
+                .ok_or_else(|| "--icade-analog= top speed must be in (0, 4]".to_string())?;
+            self.icade_analog = Some((accel, top_speed));
+        } else if let Some(value) = arg.strip_prefix("--stick-mode-toggle=") {
+            let (button, radius) = value
+                .split_once(',')
+                .ok_or_else(|| "--stick-mode-toggle= requires two values".to_string())?;
+            let button = parse_button(button, "--stick-mode-toggle=")?;
+            let radius: f32 = radius
+                .parse()
+                .ok()
+                .filter(|&r: &f32| r > 0.0)
+                .ok_or_else(|| "--stick-mode-toggle= requires a positive radius".to_string())?;
+            self.stick_mode_toggle = Some((button, radius));
         } else if let Some(values) = arg.strip_prefix("--dpad-to-touch=") {
             let nums: [f32; 4] = values
                 .split(',')

@@ -103,6 +103,8 @@ pub struct State {
 /// Returns the next time this function must be called, if any, e.g. the next
 /// time an accelerometer input is due.
 pub fn handle_events(env: &mut Environment) -> Option<Instant> {
+    use crate::frameworks::foundation::ns_string;
+    use crate::objc::release;
     use crate::window::Event;
     use crate::window::TextInputEvent;
 
@@ -162,6 +164,22 @@ pub fn handle_events(env: &mut Environment) -> Option<Instant> {
                         }
                         TextInputEvent::Return => {
                             ui_view::ui_control::ui_text_field::handle_return(env, responder)
+                        }
+                    }
+                } else if !responder.is_null() {
+                    // Private fork: other UIKeyInput responders, e.g. iCade
+                    // readers, which expect one character per insertText:.
+                    let insert_text = env.objc.lookup_selector("insertText:");
+                    if insert_text.is_some_and(|sel| msg![env; responder respondsToSelector:sel]) {
+                        let text = match text_event {
+                            TextInputEvent::Text(text) => text,
+                            TextInputEvent::Return => "\n".to_string(),
+                            TextInputEvent::Backspace => String::new(),
+                        };
+                        for ch in text.chars() {
+                            let ch = ns_string::from_rust_string(env, ch.to_string());
+                            () = msg![env; responder insertText:ch];
+                            release(env, ch);
                         }
                     }
                 }

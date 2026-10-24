@@ -70,20 +70,28 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 - (bool)isFirstResponder {
-    false
+    env.framework_state.uikit.ui_responder.first_responder == this
 }
 - (bool)canBecomeFirstResponder {
     false
 }
 - (bool)becomeFirstResponder {
-    // TODO
-    false
+    // Private fork: just enough for views that take keyboard input through
+    // UIKeyInput, such as iCade readers. UITextField has its own version.
+    if !msg![env; this canBecomeFirstResponder] {
+        return false;
+    }
+    log_once!("A view took keyboard input (e.g. an iCade reader).");
+    env.framework_state.uikit.ui_responder.first_responder = this;
+    true
 }
 - (bool)canResignFirstResponder {
     true
 }
 - (bool)resignFirstResponder {
-    // TODO
+    if env.framework_state.uikit.ui_responder.first_responder == this {
+        env.framework_state.uikit.ui_responder.first_responder = nil;
+    }
     true
 }
 
