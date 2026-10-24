@@ -166,6 +166,15 @@ Game controller options:
         right analog stick (tap/hold by pressing the stick or right shoulder
         button).
 
+    --stick-to-swipe=...
+        (Private Gridrunner fork.) Maps the left analog stick to a finger that
+        sweeps continuously across the simulated touch screen, for games with
+        relative "trackpad" style touch controls. The value is the finger's
+        speed in points per second at full stick deflection, e.g.
+        --stick-to-swipe=900. The finger touches down at the screen centre when
+        the stick is pushed, lifts when it is released, and is recentred
+        whenever it nears the edge of the screen.
+
     --stabilize-virtual-cursor=...
         Apply motion smoothing and a sticky radius to the virtual cursor
         (controlled by the right analog stick).

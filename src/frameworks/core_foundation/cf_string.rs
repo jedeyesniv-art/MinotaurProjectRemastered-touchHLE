@@ -32,6 +32,7 @@ pub const kCFStringEncodingUTF16: CFStringEncoding = kCFStringEncodingUnicode;
 pub const kCFStringEncodingUTF16BE: CFStringEncoding = 0x10000100;
 pub const kCFStringEncodingUTF16LE: CFStringEncoding = 0x14000100;
 pub const kCFStringEncodingISOLatin1: CFStringEncoding = 0x0201;
+pub const kCFStringEncodingUTF32LE: CFStringEncoding = 0x1c000100;
 
 fn CFStringAppend(
     env: &mut Environment,
@@ -104,6 +105,33 @@ fn CFStringCreateCopy(
 ) -> CFStringRef {
     assert!(allocator == kCFAllocatorDefault || env.mem.read(allocator).is_system_default()); // unimplemented
     msg![env; the_string copy]
+}
+
+fn CFStringCreateExternalRepresentation(
+    env: &mut Environment,
+    allocator: CFAllocatorRef,
+    the_string: CFStringRef,
+    encoding: CFStringEncoding,
+    loss_byte: u8,
+) -> id {
+    assert!(allocator == kCFAllocatorDefault || env.mem.read(allocator).is_system_default()); // unimplemented
+    if encoding == kCFStringEncodingUTF32LE {
+        // The NSString side has no UTF-32 support, so encode it here.
+        let string = ns_string::to_rust_string(env, the_string);
+        let bytes: Vec<u8> = string.chars().flat_map(|c| (c as u32).to_le_bytes()).collect();
+        let length: GuestUSize = bytes.len().try_into().unwrap();
+        let ptr: MutPtr<u8> = env.mem.alloc(length.max(1)).cast();
+        env.mem.bytes_at_mut(ptr, length).copy_from_slice(&bytes);
+        let data: id = msg_class![env; NSData dataWithBytesNoCopy:(ptr.cast_void()) length:length];
+        return msg![env; data retain];
+    }
+    let ns_encoding = CFStringConvertEncodingToNSStringEncoding(env, encoding);
+    // A non-zero loss byte permits lossy conversion; substituting the exact
+    // byte is not implemented.
+    let lossy = loss_byte != 0;
+    let data: id = msg![env; the_string dataUsingEncoding:ns_encoding allowLossyConversion:lossy];
+    // Create rule: the caller owns the result.
+    msg![env; data retain]
 }
 
 fn CFStringCreateMutable(
@@ -451,6 +479,7 @@ pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(CFStringConvertEncodingToNSStringEncoding(_)),
     export_c_func!(CFStringConvertNSStringEncodingToEncoding(_)),
     export_c_func!(CFStringCreateCopy(_, _)),
+    export_c_func!(CFStringCreateExternalRepresentation(_, _, _, _)),
     export_c_func!(CFStringCreateMutable(_, _)),
     export_c_func!(CFStringCreateMutableCopy(_, _, _)),
     export_c_func!(CFStringCreateWithBytes(_, _, _, _, _)),

@@ -43,7 +43,7 @@ pub use objects::{
 pub use properties::todo_objc_setter;
 pub use selectors::{selector, SEL};
 
-use crate::mem::ConstVoidPtr;
+use crate::mem::{ConstVoidPtr, MutPtr};
 use crate::Environment;
 use classes::{
     class_getInstanceSize, class_getMethodImplementation, class_getProperty, class_getSuperclass,
@@ -117,7 +117,43 @@ const CONSTANTS: ConstantExports = &[
     // and avoids a linker error for the integration tests.
     ("__objc_empty_vtable", HostConstant::NullPtr),
     ("__objc_empty_cache", HostConstant::NullPtr),
+    // Private Gridrunner fork: the `isa` of blocks created on the stack. The
+    // value is only compared against, never dereferenced by our runtime.
+    (
+        "__NSConcreteStackBlock",
+        HostConstant::Custom(|env| env.mem.alloc(16).cast_const()),
+    ),
+    (
+        "__NSConcreteGlobalBlock",
+        HostConstant::Custom(|env| env.mem.alloc(16).cast_const()),
+    ),
 ];
+
+// Private Gridrunner fork: ARC entry points (iOS 5 SDK builds call these
+// directly) and the minimal block runtime needed by
+// `libc::dispatch::dispatch_async`.
+fn objc_retain(env: &mut Environment, object: id) -> id {
+    retain(env, object)
+}
+fn objc_release(env: &mut Environment, object: id) {
+    release(env, object)
+}
+fn objc_autorelease(env: &mut Environment, object: id) -> id {
+    autorelease(env, object)
+}
+/// Blocks are only ever invoked synchronously by our `dispatch_async`, so
+/// a stack block never outlives its frame and copying is unnecessary.
+fn _Block_copy(_env: &mut Environment, block: ConstVoidPtr) -> ConstVoidPtr {
+    block
+}
+fn _Block_release(_env: &mut Environment, _block: ConstVoidPtr) {}
+fn _Block_object_assign(env: &mut Environment, dest: MutPtr<ConstVoidPtr>, object: ConstVoidPtr, flags: i32) {
+    const BLOCK_FIELD_IS_OBJECT: i32 = 3;
+    env.mem.write(dest, object);
+    if flags & 0xf == BLOCK_FIELD_IS_OBJECT {
+        retain(env, object.cast().cast_mut());
+    }
+}
 
 /// Block support is iOS 4+, but it seems like Block Runtime Helpers
 /// could still be called on even if minimal iOS version is set to 3.x?
@@ -152,4 +188,10 @@ const FUNCTIONS: FunctionExports = &[
     export_c_func!(object_getClass(_)),
     export_c_func!(sel_registerName(_)),
     export_c_func!(_Block_object_dispose(_, _)),
+    export_c_func!(objc_retain(_)),
+    export_c_func!(objc_release(_)),
+    export_c_func!(objc_autorelease(_)),
+    export_c_func!(_Block_copy(_)),
+    export_c_func!(_Block_release(_)),
+    export_c_func!(_Block_object_assign(_, _, _)),
 ];

@@ -388,6 +388,10 @@ const UNSUPPORTED_TEX_PARAMS: ParamTable =
     ParamTable(&[(gl21::TEXTURE_MAX_LEVEL, ParamType::Float, 1)]);
 
 pub struct GLES1OnGL2State {
+    /// This context implements OpenGL ES 2.0 rather than 1.1 (private
+    /// Gridrunner fork). Most entry points are shared; ES 2.0 mode relaxes
+    /// the ES 1.1-specific parameter checks and passes calls straight through.
+    es2: bool,
     pointer_is_fixed_point: [bool; ARRAYS.len()],
     fixed_point_texture_units: HashSet<GLenum>,
     fixed_point_translation_buffers: [Vec<GLfloat>; ARRAYS.len()],
@@ -407,6 +411,7 @@ impl GLESContext for GLES1OnGL2Context {
         Ok(Self {
             gl_ctx: window.create_gl_context(GLVersion::GL21Compat)?,
             state: GLES1OnGL2State {
+                es2: false,
                 pointer_is_fixed_point: [false; ARRAYS.len()],
                 fixed_point_texture_units: HashSet::new(),
                 fixed_point_translation_buffers: [Vec::new(), Vec::new(), Vec::new(), Vec::new()],
@@ -455,6 +460,61 @@ impl GLESContext for GLES1OnGL2Context {
             state: &mut self.state,
         })
     }
+}
+
+impl GLES1OnGL2Context {
+    /// Construct a context that implements OpenGL ES 2.0 on top of OpenGL 2.1.
+    pub fn new_es2(window: &mut Window) -> Result<Self, String> {
+        let mut ctx = <Self as GLESContext>::new(window)?;
+        ctx.state.es2 = true;
+        Ok(ctx)
+    }
+}
+
+/// Translate a GLSL ES 1.00 shader to desktop GLSL 1.20.
+///
+/// The two languages are nearly identical. The differences that matter in
+/// practice are the `#version` line and the precision qualifiers, which
+/// GLSL 1.20 reserves but does not accept, so those are removed.
+pub fn translate_glsl_es_to_glsl120(source: &str) -> String {
+    let mut out = String::from("#version 120\n");
+    let mut skipping_precision_statement = false;
+    for line in source.lines() {
+        if line.trim_start().starts_with("#version") {
+            out.push('\n');
+            continue;
+        }
+        let mut chars = line.char_indices().peekable();
+        while let Some((start, c)) = chars.next() {
+            if c.is_ascii_alphabetic() || c == '_' {
+                let mut end = start + c.len_utf8();
+                while let Some(&(i, c2)) = chars.peek() {
+                    if c2.is_ascii_alphanumeric() || c2 == '_' {
+                        end = i + c2.len_utf8();
+                        chars.next();
+                    } else {
+                        break;
+                    }
+                }
+                let word = &line[start..end];
+                if word == "precision" {
+                    skipping_precision_statement = true;
+                } else if !skipping_precision_statement
+                    && !matches!(word, "lowp" | "mediump" | "highp")
+                {
+                    out.push_str(word);
+                }
+            } else if skipping_precision_statement {
+                if c == ';' {
+                    skipping_precision_statement = false;
+                }
+            } else {
+                out.push(c);
+            }
+        }
+        out.push('\n');
+    }
+    out
 }
 
 pub struct GLES1OnGL2<'a> {
@@ -684,6 +744,10 @@ impl GLES for GLES1OnGL2<'_> {
         gl21::GetError()
     }
     unsafe fn Enable(&mut self, cap: GLenum) {
+        if self.state.es2 {
+            gl21::Enable(cap);
+            return;
+        }
         if ARRAYS.iter().any(|&ArrayInfo { name, .. }| name == cap) {
             log_dbg!("Tolerating glEnable({:#x}) of client state", cap);
         } else if cap == gl21::PERSPECTIVE_CORRECTION_HINT
@@ -701,12 +765,19 @@ impl GLES for GLES1OnGL2<'_> {
         gl21::Enable(cap);
     }
     unsafe fn IsEnabled(&mut self, cap: GLenum) -> GLboolean {
+        if self.state.es2 {
+            return gl21::IsEnabled(cap);
+        }
         assert!(
             CAPABILITIES.contains(&cap) || ARRAYS.iter().any(|&ArrayInfo { name, .. }| name == cap)
         );
         gl21::IsEnabled(cap)
     }
     unsafe fn Disable(&mut self, cap: GLenum) {
+        if self.state.es2 {
+            gl21::Disable(cap);
+            return;
+        }
         if CAPABILITIES.contains(&cap) {
             log_dbg!("glDisable{:#x}", cap);
         } else if ARRAYS.iter().any(|&ArrayInfo { name, .. }| name == cap) {
@@ -746,6 +817,10 @@ impl GLES for GLES1OnGL2<'_> {
         gl21::DisableClientState(array);
     }
     unsafe fn GetBooleanv(&mut self, pname: GLenum, params: *mut GLboolean) {
+        if self.state.es2 && !GET_PARAMS.contains(pname) {
+            gl21::GetBooleanv(pname, params);
+            return;
+        }
         let (type_, count) = GET_PARAMS.get_type_info(pname);
         match type_ {
             ParamType::Boolean => {
@@ -768,6 +843,10 @@ impl GLES for GLES1OnGL2<'_> {
     }
     // TODO: GetFixedv
     unsafe fn GetFloatv(&mut self, pname: GLenum, params: *mut GLfloat) {
+        if self.state.es2 && !GET_PARAMS.contains(pname) {
+            gl21::GetFloatv(pname, params);
+            return;
+        }
         let (type_, _count) = GET_PARAMS.get_type_info(pname);
         match type_ {
             ParamType::Float | ParamType::FloatSpecial => {
@@ -777,6 +856,10 @@ impl GLES for GLES1OnGL2<'_> {
         }
     }
     unsafe fn GetIntegerv(&mut self, pname: GLenum, params: *mut GLint) {
+        if self.state.es2 && !GET_PARAMS.contains(pname) {
+            gl21::GetIntegerv(pname, params);
+            return;
+        }
         let (type_, _count) = GET_PARAMS.get_type_info(pname);
         // TODO: type conversion
         let allowed_float = type_ == ParamType::Float && pname == gl21::POINT_SIZE_MAX;
@@ -1508,7 +1591,9 @@ impl GLES for GLES1OnGL2<'_> {
         gl21::IsTexture(texture)
     }
     unsafe fn BindTexture(&mut self, target: GLenum, texture: GLuint) {
-        assert!(target == gl21::TEXTURE_2D);
+        assert!(
+            target == gl21::TEXTURE_2D || (self.state.es2 && target == gl21::TEXTURE_CUBE_MAP)
+        );
         gl21::BindTexture(target, texture)
     }
     unsafe fn TexParameteri(&mut self, target: GLenum, pname: GLenum, param: GLint) {
@@ -2150,5 +2235,246 @@ impl GLES for GLES1OnGL2<'_> {
     }
     unsafe fn UnmapBufferOES(&mut self, target: GLenum) -> GLboolean {
         gl21::UnmapBuffer(target)
+    }
+
+    // OpenGL ES 2.0 (private Gridrunner fork). These map directly onto the
+    // equivalent OpenGL 2.1 functions.
+
+    fn is_es2(&self) -> bool {
+        self.state.es2
+    }
+    unsafe fn CreateShader(&mut self, type_: GLenum) -> GLuint {
+        assert!(type_ == gl21::VERTEX_SHADER || type_ == gl21::FRAGMENT_SHADER);
+        gl21::CreateShader(type_)
+    }
+    unsafe fn DeleteShader(&mut self, shader: GLuint) {
+        gl21::DeleteShader(shader)
+    }
+    unsafe fn IsShader(&mut self, shader: GLuint) -> GLboolean {
+        gl21::IsShader(shader)
+    }
+    unsafe fn ShaderSource(&mut self, shader: GLuint, source: &str) {
+        let translated = translate_glsl_es_to_glsl120(source);
+        log_dbg!("Translated shader {}:\n{}", shader, translated);
+        let ptr = translated.as_ptr() as *const GLchar;
+        let len = translated.len() as GLint;
+        gl21::ShaderSource(shader, 1, &ptr, &len)
+    }
+    unsafe fn CompileShader(&mut self, shader: GLuint) {
+        gl21::CompileShader(shader)
+    }
+    unsafe fn GetShaderiv(&mut self, shader: GLuint, pname: GLenum, params: *mut GLint) {
+        gl21::GetShaderiv(shader, pname, params)
+    }
+    unsafe fn GetShaderInfoLog(
+        &mut self,
+        shader: GLuint,
+        buf_size: GLsizei,
+        length: *mut GLsizei,
+        info_log: *mut GLchar,
+    ) {
+        gl21::GetShaderInfoLog(shader, buf_size, length, info_log)
+    }
+    unsafe fn CreateProgram(&mut self) -> GLuint {
+        gl21::CreateProgram()
+    }
+    unsafe fn DeleteProgram(&mut self, program: GLuint) {
+        gl21::DeleteProgram(program)
+    }
+    unsafe fn IsProgram(&mut self, program: GLuint) -> GLboolean {
+        gl21::IsProgram(program)
+    }
+    unsafe fn AttachShader(&mut self, program: GLuint, shader: GLuint) {
+        gl21::AttachShader(program, shader)
+    }
+    unsafe fn DetachShader(&mut self, program: GLuint, shader: GLuint) {
+        gl21::DetachShader(program, shader)
+    }
+    unsafe fn LinkProgram(&mut self, program: GLuint) {
+        gl21::LinkProgram(program)
+    }
+    unsafe fn ValidateProgram(&mut self, program: GLuint) {
+        gl21::ValidateProgram(program)
+    }
+    unsafe fn UseProgram(&mut self, program: GLuint) {
+        gl21::UseProgram(program)
+    }
+    unsafe fn GetProgramiv(&mut self, program: GLuint, pname: GLenum, params: *mut GLint) {
+        gl21::GetProgramiv(program, pname, params)
+    }
+    unsafe fn GetProgramInfoLog(
+        &mut self,
+        program: GLuint,
+        buf_size: GLsizei,
+        length: *mut GLsizei,
+        info_log: *mut GLchar,
+    ) {
+        gl21::GetProgramInfoLog(program, buf_size, length, info_log)
+    }
+    unsafe fn BindAttribLocation(&mut self, program: GLuint, index: GLuint, name: *const GLchar) {
+        gl21::BindAttribLocation(program, index, name)
+    }
+    unsafe fn GetAttribLocation(&mut self, program: GLuint, name: *const GLchar) -> GLint {
+        gl21::GetAttribLocation(program, name)
+    }
+    unsafe fn GetUniformLocation(&mut self, program: GLuint, name: *const GLchar) -> GLint {
+        gl21::GetUniformLocation(program, name)
+    }
+    unsafe fn GetActiveAttrib(
+        &mut self,
+        program: GLuint,
+        index: GLuint,
+        buf_size: GLsizei,
+        length: *mut GLsizei,
+        size: *mut GLint,
+        type_: *mut GLenum,
+        name: *mut GLchar,
+    ) {
+        gl21::GetActiveAttrib(program, index, buf_size, length, size, type_, name)
+    }
+    unsafe fn GetActiveUniform(
+        &mut self,
+        program: GLuint,
+        index: GLuint,
+        buf_size: GLsizei,
+        length: *mut GLsizei,
+        size: *mut GLint,
+        type_: *mut GLenum,
+        name: *mut GLchar,
+    ) {
+        gl21::GetActiveUniform(program, index, buf_size, length, size, type_, name)
+    }
+    unsafe fn EnableVertexAttribArray(&mut self, index: GLuint) {
+        gl21::EnableVertexAttribArray(index)
+    }
+    unsafe fn DisableVertexAttribArray(&mut self, index: GLuint) {
+        gl21::DisableVertexAttribArray(index)
+    }
+    unsafe fn VertexAttribPointer(
+        &mut self,
+        index: GLuint,
+        size: GLint,
+        type_: GLenum,
+        normalized: GLboolean,
+        stride: GLsizei,
+        pointer: *const GLvoid,
+    ) {
+        // GL_FIXED is not available in OpenGL 2.1. TODO if an app needs it.
+        assert!(type_ != gles11::FIXED);
+        gl21::VertexAttribPointer(index, size, type_, normalized, stride, pointer)
+    }
+    unsafe fn VertexAttrib4f(
+        &mut self,
+        index: GLuint,
+        x: GLfloat,
+        y: GLfloat,
+        z: GLfloat,
+        w: GLfloat,
+    ) {
+        gl21::VertexAttrib4f(index, x, y, z, w)
+    }
+    unsafe fn GetVertexAttribiv(&mut self, index: GLuint, pname: GLenum, params: *mut GLint) {
+        gl21::GetVertexAttribiv(index, pname, params)
+    }
+    unsafe fn GetVertexAttribPointerv(
+        &mut self,
+        index: GLuint,
+        pname: GLenum,
+        pointer: *mut *const GLvoid,
+    ) {
+        gl21::GetVertexAttribPointerv(index, pname, pointer as *mut *mut GLvoid)
+    }
+    unsafe fn Uniform1iv(&mut self, location: GLint, count: GLsizei, value: *const GLint) {
+        gl21::Uniform1iv(location, count, value)
+    }
+    unsafe fn Uniform2iv(&mut self, location: GLint, count: GLsizei, value: *const GLint) {
+        gl21::Uniform2iv(location, count, value)
+    }
+    unsafe fn Uniform3iv(&mut self, location: GLint, count: GLsizei, value: *const GLint) {
+        gl21::Uniform3iv(location, count, value)
+    }
+    unsafe fn Uniform4iv(&mut self, location: GLint, count: GLsizei, value: *const GLint) {
+        gl21::Uniform4iv(location, count, value)
+    }
+    unsafe fn Uniform1fv(&mut self, location: GLint, count: GLsizei, value: *const GLfloat) {
+        gl21::Uniform1fv(location, count, value)
+    }
+    unsafe fn Uniform2fv(&mut self, location: GLint, count: GLsizei, value: *const GLfloat) {
+        gl21::Uniform2fv(location, count, value)
+    }
+    unsafe fn Uniform3fv(&mut self, location: GLint, count: GLsizei, value: *const GLfloat) {
+        gl21::Uniform3fv(location, count, value)
+    }
+    unsafe fn Uniform4fv(&mut self, location: GLint, count: GLsizei, value: *const GLfloat) {
+        gl21::Uniform4fv(location, count, value)
+    }
+    unsafe fn UniformMatrix2fv(
+        &mut self,
+        location: GLint,
+        count: GLsizei,
+        transpose: GLboolean,
+        value: *const GLfloat,
+    ) {
+        gl21::UniformMatrix2fv(location, count, transpose, value)
+    }
+    unsafe fn UniformMatrix3fv(
+        &mut self,
+        location: GLint,
+        count: GLsizei,
+        transpose: GLboolean,
+        value: *const GLfloat,
+    ) {
+        gl21::UniformMatrix3fv(location, count, transpose, value)
+    }
+    unsafe fn UniformMatrix4fv(
+        &mut self,
+        location: GLint,
+        count: GLsizei,
+        transpose: GLboolean,
+        value: *const GLfloat,
+    ) {
+        gl21::UniformMatrix4fv(location, count, transpose, value)
+    }
+    unsafe fn BlendFuncSeparate(
+        &mut self,
+        src_rgb: GLenum,
+        dst_rgb: GLenum,
+        src_alpha: GLenum,
+        dst_alpha: GLenum,
+    ) {
+        gl21::BlendFuncSeparate(src_rgb, dst_rgb, src_alpha, dst_alpha)
+    }
+    unsafe fn BlendEquationSeparate(&mut self, mode_rgb: GLenum, mode_alpha: GLenum) {
+        gl21::BlendEquationSeparate(mode_rgb, mode_alpha)
+    }
+    unsafe fn BlendColor(
+        &mut self,
+        red: GLclampf,
+        green: GLclampf,
+        blue: GLclampf,
+        alpha: GLclampf,
+    ) {
+        gl21::BlendColor(red, green, blue, alpha)
+    }
+    unsafe fn StencilFuncSeparate(
+        &mut self,
+        face: GLenum,
+        func: GLenum,
+        ref_: GLint,
+        mask: GLuint,
+    ) {
+        gl21::StencilFuncSeparate(face, func, ref_, mask)
+    }
+    unsafe fn StencilOpSeparate(
+        &mut self,
+        face: GLenum,
+        sfail: GLenum,
+        dpfail: GLenum,
+        dppass: GLenum,
+    ) {
+        gl21::StencilOpSeparate(face, sfail, dpfail, dppass)
+    }
+    unsafe fn StencilMaskSeparate(&mut self, face: GLenum, mask: GLuint) {
+        gl21::StencilMaskSeparate(face, mask)
     }
 }

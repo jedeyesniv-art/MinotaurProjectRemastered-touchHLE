@@ -48,6 +48,7 @@ pub struct State {
     avfoundation: avfoundation::State,
     audio_toolbox: audio_toolbox::State,
     core_animation: core_animation::State,
+    core_motion: core_motion::State,
     foundation: foundation::State,
     media_player: media_player::State,
     openal: openal::State,

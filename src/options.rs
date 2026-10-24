@@ -47,6 +47,8 @@ pub struct Options {
     pub button_to_touch: HashMap<Button, (f32, f32)>,
     pub dpad_to_touch: Option<(f32, f32, f32, f32)>,
     pub stick_to_touch: Option<(f32, f32, f32, f32)>,
+    /// See [crate::window::Window::update_stick_swipe] (private fork).
+    pub stick_to_swipe: Option<f32>,
     pub stabilize_virtual_cursor: Option<(f32, f32)>,
     pub gles1_implementation: Option<GLESImplementation>,
     pub direct_memory_access: bool,
@@ -80,6 +82,7 @@ impl Default for Options {
             button_to_touch: HashMap::new(),
             dpad_to_touch: None,
             stick_to_touch: None,
+            stick_to_swipe: None,
             stabilize_virtual_cursor: None,
             gles1_implementation: None,
             direct_memory_access: true,
@@ -179,6 +182,13 @@ impl Options {
                 .map_err(|_| "--stick-to-touch= requires four values".to_string())?;
 
             self.stick_to_touch = Some((nums[0], nums[1], nums[2], nums[3]));
+        } else if let Some(value) = arg.strip_prefix("--stick-to-swipe=") {
+            let speed: f32 = value
+                .parse()
+                .ok()
+                .filter(|&s: &f32| s > 0.0)
+                .ok_or_else(|| "--stick-to-swipe= requires a positive speed".to_string())?;
+            self.stick_to_swipe = Some(speed);
         } else if let Some(values) = arg.strip_prefix("--dpad-to-touch=") {
             let nums: [f32; 4] = values
                 .split(',')

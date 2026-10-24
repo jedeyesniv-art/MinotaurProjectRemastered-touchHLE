@@ -314,7 +314,11 @@ impl Environment {
         // should be handled before creating the window because handling of
         // window rotation after-the-fact is somewhat glitchy.
         // This also ensures the splash screen is correctly oriented.
-        if options.initial_orientation == window::DeviceOrientation::Portrait {
+        // Private Gridrunner fork: only rotate if the app can't run in portrait.
+        let supports_portrait = bundle
+            .supported_interface_orientations()
+            .contains(&"UIInterfaceOrientationPortrait");
+        if options.initial_orientation == window::DeviceOrientation::Portrait && !supports_portrait {
             if let Some(&non_portrait_orientation) = bundle
                 .supported_interface_orientations()
                 .iter()
@@ -1552,6 +1556,11 @@ impl Environment {
         }
 
         if self.gdb_server.is_none() {
+            // Private fork: on Windows the unwind below can crash before the
+            // usual post-panic dump runs, so dump the guest state first.
+            echo!("CPU error {:?}, register state before panicking:", error);
+            self.dump_all_regs();
+            self.stack_trace_current();
             panic!("Error during CPU execution: {error:?}");
         }
 

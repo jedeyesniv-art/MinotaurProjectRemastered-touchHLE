@@ -14,10 +14,12 @@ use crate::dyld::FunctionExports;
 use crate::environment::Environment;
 use crate::export_c_func;
 use crate::frameworks::carbon_core::{paramErr, OSStatus};
+use crate::frameworks::core_foundation::cf_string::CFStringRef;
 use crate::frameworks::core_audio_types::{
     fourcc, kAudioFormatFlagIsAlignedHigh, kAudioFormatFlagIsFloat, kAudioFormatFlagIsPacked,
     kAudioFormatFlagIsSignedInteger, kAudioFormatLinearPCM, AudioStreamBasicDescription,
 };
+use crate::frameworks::foundation::ns_string;
 use crate::mem::{ConstPtr, ConstVoidPtr, MutPtr, SafeRead};
 
 const kAudioUnitType_Output: u32 = fourcc(b"auou");
@@ -145,6 +147,22 @@ fn AudioComponentFindNext(
     out_component
 }
 
+fn AudioComponentCopyName(
+    env: &mut Environment,
+    in_component: AudioComponent,
+    out_name: MutPtr<CFStringRef>,
+) -> OSStatus {
+    if in_component.is_null() || out_name.is_null() {
+        return paramErr;
+    }
+    // Only RemoteIO can be found, see AudioComponentFindNext. The caller owns
+    // the returned string (Create/Copy rule).
+    let name = ns_string::from_rust_string(env, "Apple: RemoteIO".to_string());
+    env.mem.write(out_name, name);
+    log_dbg!("AudioComponentCopyName({:?}, {:?}) -> 0", in_component, out_name);
+    0
+}
+
 fn AudioComponentInstanceNew(
     env: &mut Environment,
     in_component: AudioComponent,
@@ -194,6 +212,7 @@ fn AudioComponentInstanceDispose(
 
 pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(AudioComponentFindNext(_, _)),
+    export_c_func!(AudioComponentCopyName(_, _)),
     export_c_func!(AudioComponentInstanceNew(_, _)),
     export_c_func!(AudioComponentInstanceDispose(_)),
 ];

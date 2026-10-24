@@ -70,6 +70,7 @@ pub trait GLESContext {
 /// of the correct size as documented in the OpenGL ES spec.
 #[allow(clippy::upper_case_acronyms)]
 #[allow(clippy::too_many_arguments)] // not our fault :(
+#[allow(unused_variables)] // default bodies of the OpenGL ES 2.0 methods
 pub trait GLES {
     /// Get some string describing the underlying driver. For OpenGL this is
     /// `GL_VENDOR`, `GL_RENDERER` and `GL_VERSION`.
@@ -440,4 +441,147 @@ pub trait GLES {
     unsafe fn GetBufferParameteriv(&mut self, target: GLenum, pname: GLenum, params: *mut GLint);
     unsafe fn MapBufferOES(&mut self, target: GLenum, access: GLenum) -> *mut GLvoid;
     unsafe fn UnmapBufferOES(&mut self, target: GLenum) -> GLboolean;
+
+    // OpenGL ES 2.0 (private Gridrunner fork, not part of upstream touchHLE).
+    // Implementations that only provide OpenGL ES 1.1 keep the default bodies.
+
+    /// Whether this is an OpenGL ES 2.0 context.
+    fn is_es2(&self) -> bool {
+        false
+    }
+    unsafe fn CreateShader(&mut self, type_: GLenum) -> GLuint {
+        unimplemented!("glCreateShader requires OpenGL ES 2.0")
+    }
+    unsafe fn DeleteShader(&mut self, shader: GLuint) {
+        unimplemented!("glDeleteShader requires OpenGL ES 2.0")
+    }
+    unsafe fn IsShader(&mut self, shader: GLuint) -> GLboolean {
+        unimplemented!("glIsShader requires OpenGL ES 2.0")
+    }
+    unsafe fn ShaderSource(&mut self, shader: GLuint, source: &str) {
+        unimplemented!("glShaderSource requires OpenGL ES 2.0")
+    }
+    unsafe fn CompileShader(&mut self, shader: GLuint) {
+        unimplemented!("glCompileShader requires OpenGL ES 2.0")
+    }
+    unsafe fn GetShaderiv(&mut self, shader: GLuint, pname: GLenum, params: *mut GLint) {
+        unimplemented!("glGetShaderiv requires OpenGL ES 2.0")
+    }
+    unsafe fn GetShaderInfoLog(&mut self, shader: GLuint, buf_size: GLsizei, length: *mut GLsizei, info_log: *mut GLchar) {
+        unimplemented!("glGetShaderInfoLog requires OpenGL ES 2.0")
+    }
+    unsafe fn CreateProgram(&mut self) -> GLuint {
+        unimplemented!("glCreateProgram requires OpenGL ES 2.0")
+    }
+    unsafe fn DeleteProgram(&mut self, program: GLuint) {
+        unimplemented!("glDeleteProgram requires OpenGL ES 2.0")
+    }
+    unsafe fn IsProgram(&mut self, program: GLuint) -> GLboolean {
+        unimplemented!("glIsProgram requires OpenGL ES 2.0")
+    }
+    unsafe fn AttachShader(&mut self, program: GLuint, shader: GLuint) {
+        unimplemented!("glAttachShader requires OpenGL ES 2.0")
+    }
+    unsafe fn DetachShader(&mut self, program: GLuint, shader: GLuint) {
+        unimplemented!("glDetachShader requires OpenGL ES 2.0")
+    }
+    unsafe fn LinkProgram(&mut self, program: GLuint) {
+        unimplemented!("glLinkProgram requires OpenGL ES 2.0")
+    }
+    unsafe fn ValidateProgram(&mut self, program: GLuint) {
+        unimplemented!("glValidateProgram requires OpenGL ES 2.0")
+    }
+    unsafe fn UseProgram(&mut self, program: GLuint) {
+        unimplemented!("glUseProgram requires OpenGL ES 2.0")
+    }
+    unsafe fn GetProgramiv(&mut self, program: GLuint, pname: GLenum, params: *mut GLint) {
+        unimplemented!("glGetProgramiv requires OpenGL ES 2.0")
+    }
+    unsafe fn GetProgramInfoLog(&mut self, program: GLuint, buf_size: GLsizei, length: *mut GLsizei, info_log: *mut GLchar) {
+        unimplemented!("glGetProgramInfoLog requires OpenGL ES 2.0")
+    }
+    unsafe fn BindAttribLocation(&mut self, program: GLuint, index: GLuint, name: *const GLchar) {
+        unimplemented!("glBindAttribLocation requires OpenGL ES 2.0")
+    }
+    unsafe fn GetAttribLocation(&mut self, program: GLuint, name: *const GLchar) -> GLint {
+        unimplemented!("glGetAttribLocation requires OpenGL ES 2.0")
+    }
+    unsafe fn GetUniformLocation(&mut self, program: GLuint, name: *const GLchar) -> GLint {
+        unimplemented!("glGetUniformLocation requires OpenGL ES 2.0")
+    }
+    unsafe fn GetActiveAttrib(&mut self, program: GLuint, index: GLuint, buf_size: GLsizei, length: *mut GLsizei, size: *mut GLint, type_: *mut GLenum, name: *mut GLchar) {
+        unimplemented!("glGetActiveAttrib requires OpenGL ES 2.0")
+    }
+    unsafe fn GetActiveUniform(&mut self, program: GLuint, index: GLuint, buf_size: GLsizei, length: *mut GLsizei, size: *mut GLint, type_: *mut GLenum, name: *mut GLchar) {
+        unimplemented!("glGetActiveUniform requires OpenGL ES 2.0")
+    }
+    unsafe fn EnableVertexAttribArray(&mut self, index: GLuint) {
+        unimplemented!("glEnableVertexAttribArray requires OpenGL ES 2.0")
+    }
+    unsafe fn DisableVertexAttribArray(&mut self, index: GLuint) {
+        unimplemented!("glDisableVertexAttribArray requires OpenGL ES 2.0")
+    }
+    unsafe fn VertexAttribPointer(&mut self, index: GLuint, size: GLint, type_: GLenum, normalized: GLboolean, stride: GLsizei, pointer: *const GLvoid) {
+        unimplemented!("glVertexAttribPointer requires OpenGL ES 2.0")
+    }
+    unsafe fn VertexAttrib4f(&mut self, index: GLuint, x: GLfloat, y: GLfloat, z: GLfloat, w: GLfloat) {
+        unimplemented!("glVertexAttrib4f requires OpenGL ES 2.0")
+    }
+    unsafe fn GetVertexAttribiv(&mut self, index: GLuint, pname: GLenum, params: *mut GLint) {
+        unimplemented!("glGetVertexAttribiv requires OpenGL ES 2.0")
+    }
+    unsafe fn GetVertexAttribPointerv(&mut self, index: GLuint, pname: GLenum, pointer: *mut *const GLvoid) {
+        unimplemented!("glGetVertexAttribPointerv requires OpenGL ES 2.0")
+    }
+    unsafe fn Uniform1iv(&mut self, location: GLint, count: GLsizei, value: *const GLint) {
+        unimplemented!("glUniform1iv requires OpenGL ES 2.0")
+    }
+    unsafe fn Uniform2iv(&mut self, location: GLint, count: GLsizei, value: *const GLint) {
+        unimplemented!("glUniform2iv requires OpenGL ES 2.0")
+    }
+    unsafe fn Uniform3iv(&mut self, location: GLint, count: GLsizei, value: *const GLint) {
+        unimplemented!("glUniform3iv requires OpenGL ES 2.0")
+    }
+    unsafe fn Uniform4iv(&mut self, location: GLint, count: GLsizei, value: *const GLint) {
+        unimplemented!("glUniform4iv requires OpenGL ES 2.0")
+    }
+    unsafe fn Uniform1fv(&mut self, location: GLint, count: GLsizei, value: *const GLfloat) {
+        unimplemented!("glUniform1fv requires OpenGL ES 2.0")
+    }
+    unsafe fn Uniform2fv(&mut self, location: GLint, count: GLsizei, value: *const GLfloat) {
+        unimplemented!("glUniform2fv requires OpenGL ES 2.0")
+    }
+    unsafe fn Uniform3fv(&mut self, location: GLint, count: GLsizei, value: *const GLfloat) {
+        unimplemented!("glUniform3fv requires OpenGL ES 2.0")
+    }
+    unsafe fn Uniform4fv(&mut self, location: GLint, count: GLsizei, value: *const GLfloat) {
+        unimplemented!("glUniform4fv requires OpenGL ES 2.0")
+    }
+    unsafe fn UniformMatrix2fv(&mut self, location: GLint, count: GLsizei, transpose: GLboolean, value: *const GLfloat) {
+        unimplemented!("glUniformMatrix2fv requires OpenGL ES 2.0")
+    }
+    unsafe fn UniformMatrix3fv(&mut self, location: GLint, count: GLsizei, transpose: GLboolean, value: *const GLfloat) {
+        unimplemented!("glUniformMatrix3fv requires OpenGL ES 2.0")
+    }
+    unsafe fn UniformMatrix4fv(&mut self, location: GLint, count: GLsizei, transpose: GLboolean, value: *const GLfloat) {
+        unimplemented!("glUniformMatrix4fv requires OpenGL ES 2.0")
+    }
+    unsafe fn BlendFuncSeparate(&mut self, src_rgb: GLenum, dst_rgb: GLenum, src_alpha: GLenum, dst_alpha: GLenum) {
+        unimplemented!("glBlendFuncSeparate requires OpenGL ES 2.0")
+    }
+    unsafe fn BlendEquationSeparate(&mut self, mode_rgb: GLenum, mode_alpha: GLenum) {
+        unimplemented!("glBlendEquationSeparate requires OpenGL ES 2.0")
+    }
+    unsafe fn BlendColor(&mut self, red: GLclampf, green: GLclampf, blue: GLclampf, alpha: GLclampf) {
+        unimplemented!("glBlendColor requires OpenGL ES 2.0")
+    }
+    unsafe fn StencilFuncSeparate(&mut self, face: GLenum, func: GLenum, ref_: GLint, mask: GLuint) {
+        unimplemented!("glStencilFuncSeparate requires OpenGL ES 2.0")
+    }
+    unsafe fn StencilOpSeparate(&mut self, face: GLenum, sfail: GLenum, dpfail: GLenum, dppass: GLenum) {
+        unimplemented!("glStencilOpSeparate requires OpenGL ES 2.0")
+    }
+    unsafe fn StencilMaskSeparate(&mut self, face: GLenum, mask: GLuint) {
+        unimplemented!("glStencilMaskSeparate requires OpenGL ES 2.0")
+    }
 }

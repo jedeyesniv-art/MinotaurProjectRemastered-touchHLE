@@ -129,6 +129,18 @@ pub fn create_gles1_ctx(env: &mut Environment) -> Box<dyn GLESContext> {
     })
 }
 
+/// Create an OpenGL ES 2.0 context (private Gridrunner fork). The only
+/// implementation is the OpenGL 2.1-backed one, panicking on failure.
+pub fn create_gles2_ctx(env: &mut Environment) -> Box<dyn GLESContext> {
+    env.on_parent_stack_in_coroutine(|window, _options| {
+        assert!(window.on_main_stack());
+        log!("Creating an OpenGL ES 2.0 context via the GLES-on-GL2 layer");
+        let ctx = GLES1OnGL2Context::new_es2(window)
+            .unwrap_or_else(|err| panic!("Couldn't create OpenGL ES 2.0 context: {err}"));
+        Box::new(ctx) as Box<dyn GLESContext>
+    })
+}
+
 /// Same as [create_gles1_ctx], but without calling
 /// [Environment::on_parent_stack_in_coroutine]. Only should be called by
 /// functions not inside a coroutine that can't use [Environment].

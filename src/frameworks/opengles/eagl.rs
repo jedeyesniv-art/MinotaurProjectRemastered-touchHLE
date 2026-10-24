@@ -15,7 +15,7 @@ use crate::frameworks::foundation::NSUInteger;
 use crate::gles::gles11_raw as gles11; // constants only
 use crate::gles::gles11_raw::types::*;
 use crate::gles::present::{present_frame, FpsCounter};
-use crate::gles::{create_gles1_ctx, gles1_on_gl2, GLESContext, GLES};
+use crate::gles::{create_gles1_ctx, create_gles2_ctx, gles1_on_gl2, GLESContext, GLES};
 use crate::mem::MutPtr;
 use crate::objc::{id, msg, nil, objc_classes, release, retain, ClassExports, HostObject};
 use crate::options::Options;
@@ -54,13 +54,13 @@ pub const CONSTANTS: ConstantExports = &[
 
 type EAGLRenderingAPI = u32;
 const kEAGLRenderingAPIOpenGLES1: EAGLRenderingAPI = 1;
-#[allow(dead_code)]
 const kEAGLRenderingAPIOpenGLES2: EAGLRenderingAPI = 2;
 #[allow(dead_code)]
 const kEAGLRenderingAPIOpenGLES3: EAGLRenderingAPI = 3;
 
 pub(super) struct EAGLContextHostObject {
     pub(super) gles_ctx: Option<Box<dyn GLESContext>>,
+    api: EAGLRenderingAPI,
     /// Mapping of OpenGL ES renderbuffer names to `EAGLDrawable` instances
     /// (always `CAEAGLLayer*`). Retains the instance so it won't dangle.
     renderbuffer_drawable_bindings: Rc<RefCell<HashMap<GLuint, id>>>,
@@ -79,6 +79,7 @@ pub const CLASSES: ClassExports = objc_classes! {
 + (id)alloc {
     let host_object = Box::new(EAGLContextHostObject {
         gles_ctx: None,
+        api: kEAGLRenderingAPIOpenGLES1,
         renderbuffer_drawable_bindings: Rc::new(RefCell::new(HashMap::new())),
         fps_counter: None,
         next_frame_due: None,
@@ -110,9 +111,9 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 - (id)initWithAPI:(EAGLRenderingAPI)api sharegroup:(id)group {
-    if api != kEAGLRenderingAPIOpenGLES1 {
+    if api != kEAGLRenderingAPIOpenGLES1 && api != kEAGLRenderingAPIOpenGLES2 {
         log!(
-            "TODO: App requested EAGL initWithAPI:{} sharegroup:{:?}, returning nil as we only support API 1 for now",
+            "TODO: App requested EAGL initWithAPI:{} sharegroup:{:?}, returning nil as we only support APIs 1 and 2 for now",
             api,
             group
         );
@@ -135,7 +136,11 @@ pub const CLASSES: ClassExports = objc_classes! {
     }
     env.window.as_mut().unwrap().set_share_with_current_context(true);
 
-    let mut gles1_ins = create_gles1_ctx(env);
+    let mut gles1_ins = if api == kEAGLRenderingAPIOpenGLES2 {
+        create_gles2_ctx(env)
+    } else {
+        create_gles1_ctx(env)
+    };
 
     let window = env.window.as_mut().expect("OpenGL ES is not supported in headless mode");
     {
@@ -143,7 +148,9 @@ pub const CLASSES: ClassExports = objc_classes! {
         log!("Driver info: {}", unsafe { gles1_ctx.driver_description() });
     }
 
-    env.objc.borrow_mut::<EAGLContextHostObject>(this).gles_ctx = Some(gles1_ins);
+    let host_obj = env.objc.borrow_mut::<EAGLContextHostObject>(this);
+    host_obj.gles_ctx = Some(gles1_ins);
+    host_obj.api = api;
 
     env.window.as_mut().unwrap().set_share_with_current_context(false);
 
@@ -152,15 +159,19 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 - (id)initWithAPI:(EAGLRenderingAPI)api {
-    if api != kEAGLRenderingAPIOpenGLES1 {
+    if api != kEAGLRenderingAPIOpenGLES1 && api != kEAGLRenderingAPIOpenGLES2 {
         log!(
-            "TODO: App requested EAGL initWithAPI:{}, returning nil as we only support API 1 for now",
+            "TODO: App requested EAGL initWithAPI:{}, returning nil as we only support APIs 1 and 2 for now",
             api
         );
         return nil;
     }
 
-    let mut gles1_ins = create_gles1_ctx(env);
+    let mut gles1_ins = if api == kEAGLRenderingAPIOpenGLES2 {
+        create_gles2_ctx(env)
+    } else {
+        create_gles1_ctx(env)
+    };
 
     let window = env.window.as_mut().expect("OpenGL ES is not supported in headless mode");
     {
@@ -168,14 +179,15 @@ pub const CLASSES: ClassExports = objc_classes! {
         log!("Driver info: {}", unsafe { gles1_ctx.driver_description() });
     }
 
-    env.objc.borrow_mut::<EAGLContextHostObject>(this).gles_ctx = Some(gles1_ins);
+    let host_obj = env.objc.borrow_mut::<EAGLContextHostObject>(this);
+    host_obj.gles_ctx = Some(gles1_ins);
+    host_obj.api = api;
 
     this
 }
 
 - (EAGLRenderingAPI)API {
-    // TODO: support later API versions
-    kEAGLRenderingAPIOpenGLES1
+    env.objc.borrow::<EAGLContextHostObject>(this).api
 }
 
 - (id)sharegroup {
@@ -546,6 +558,47 @@ unsafe fn read_renderbuffer(gles: &mut dyn GLES, mut pixel_buffer: Vec<u8>) -> (
 /// (which should be provided by the app) to a texture and presents it with
 /// [present_frame], trying to avoid noticeably modifying OpenGL ES state while
 /// doing so. The front and back buffers are then swapped.
+/// OpenGL ES 2.0 state that [present_renderbuffer] must not disturb.
+struct Es2PresentState {
+    program: GLuint,
+    active_texture: GLenum,
+    enabled_attrib_arrays: Vec<GLuint>,
+}
+
+unsafe fn save_and_reset_es2_state(gles: &mut dyn GLES) -> Es2PresentState {
+    const CURRENT_PROGRAM: GLenum = 0x8B8D;
+    const MAX_VERTEX_ATTRIBS: GLenum = 0x8869;
+    const VERTEX_ATTRIB_ARRAY_ENABLED: GLenum = 0x8622;
+
+    let program = get_int(gles, CURRENT_PROGRAM) as GLuint;
+    let active_texture = get_int(gles, gles11::ACTIVE_TEXTURE) as GLenum;
+    let max_attribs = get_int(gles, MAX_VERTEX_ATTRIBS) as GLuint;
+    let mut enabled_attrib_arrays = Vec::new();
+    for index in 0..max_attribs {
+        let mut enabled = 0;
+        gles.GetVertexAttribiv(index, VERTEX_ATTRIB_ARRAY_ENABLED, &mut enabled);
+        if enabled != 0 {
+            enabled_attrib_arrays.push(index);
+            gles.DisableVertexAttribArray(index);
+        }
+    }
+    gles.UseProgram(0);
+    gles.ActiveTexture(gles11::TEXTURE0);
+    Es2PresentState {
+        program,
+        active_texture,
+        enabled_attrib_arrays,
+    }
+}
+
+unsafe fn restore_es2_state(gles: &mut dyn GLES, state: Es2PresentState) {
+    for &index in &state.enabled_attrib_arrays {
+        gles.EnableVertexAttribArray(index);
+    }
+    gles.ActiveTexture(state.active_texture);
+    gles.UseProgram(state.program);
+}
+
 unsafe fn present_renderbuffer(env: &mut Environment) {
     // Save these for when we need to draw the frame
     let viewport = env.window.as_mut().unwrap().viewport();
@@ -569,6 +622,11 @@ unsafe fn present_renderbuffer(env: &mut Environment) {
 
     let renderbuffer: GLuint = get_int(gles, gles11::RENDERBUFFER_BINDING_OES) as _;
     let (width, height) = get_renderbuffer_size(gles);
+
+    // The presentation code below uses the fixed-function pipeline, so an
+    // OpenGL ES 2.0 app's program, texture unit and generic vertex arrays
+    // must be set aside first (generic attribute 0 aliases the vertex array).
+    let es2_state = gles.is_es2().then(|| save_and_reset_es2_state(gles));
 
     // To avoid confusing the guest app, we need to be able to undo any
     // state changes we make.
@@ -757,6 +815,9 @@ unsafe fn present_renderbuffer(env: &mut Environment) {
     // Restore the other bindings
     gles.BindTexture(gles11::TEXTURE_2D, old_texture_2d);
     gles.BindFramebufferOES(gles11::FRAMEBUFFER_OES, old_framebuffer);
+    if let Some(es2_state) = es2_state {
+        restore_es2_state(gles, es2_state);
+    }
 
     // { let err = gles.GetError(); if err != 0 { panic!("{:#x}", err); } }
 }

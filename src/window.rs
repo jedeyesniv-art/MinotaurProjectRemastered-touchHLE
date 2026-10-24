@@ -132,6 +132,13 @@ pub enum FingerId {
 }
 pub type Coords = (f32, f32);
 
+/// Touch phases produced by [Window::update_stick_swipe].
+enum SwipeEvent {
+    Down,
+    Move,
+    Up,
+}
+
 struct DpadState {
     left: bool,
     right: bool,
@@ -237,6 +244,9 @@ pub struct Window {
     controllers: Vec<sdl2::controller::GameController>,
     dpad_state: DpadState,
     stick_active: bool,
+    /// Position of the simulated finger for `--stick-to-swipe`, if touching.
+    stick_swipe_pos: Option<(f32, f32)>,
+    stick_swipe_last_update: Instant,
     _sensor_ctx: sdl2::SensorSubsystem,
     accelerometer: Option<sdl2::sensor::Sensor>,
     virtual_cursor_last: Option<(f32, f32, bool, bool)>,
@@ -392,6 +402,8 @@ impl Window {
                 active: false,
             },
             stick_active: false,
+            stick_swipe_pos: None,
+            stick_swipe_last_update: Instant::now(),
             _sensor_ctx: sensor_ctx,
             accelerometer,
             virtual_cursor_last: None,
@@ -846,6 +858,18 @@ impl Window {
             })
         }
 
+        if let Some(speed) = options.stick_to_swipe {
+            for (kind, pos) in self.update_stick_swipe(options, speed, now) {
+                let coords = transform_input_coords(self, pos, true);
+                let touches = HashMap::from([(FingerId::StickToTouch, coords)]);
+                self.event_queue.push_back(match kind {
+                    SwipeEvent::Down => Event::TouchesDown(touches),
+                    SwipeEvent::Move => Event::TouchesMove(touches),
+                    SwipeEvent::Up => Event::TouchesUp(touches),
+                });
+            }
+        }
+
         if controller_updated {
             let (new_x, new_y, pressed, pressed_changed, moved) =
                 self.update_virtual_cursor(options);
@@ -1015,6 +1039,65 @@ impl Window {
         } else {
             None
         }
+    }
+
+    /// `--stick-to-swipe` (private Gridrunner fork): the left analog stick
+    /// drives a finger that slides across the screen with a velocity
+    /// proportional to the stick's deflection, for apps that use relative
+    /// ("trackpad") touch movement. The finger goes down at the centre of the
+    /// screen when the stick leaves the dead zone and lifts when it returns.
+    /// When the finger nears the edge it is lifted and put back down at the
+    /// centre, which such apps don't notice. Positions are in screen points.
+    fn update_stick_swipe(
+        &mut self,
+        options: &Options,
+        speed: f32,
+        now: Instant,
+    ) -> Vec<(SwipeEvent, (f32, f32))> {
+        // Cap the time step so a stall doesn't make the finger jump.
+        let dt = now
+            .saturating_duration_since(self.stick_swipe_last_update)
+            .as_secs_f32()
+            .min(0.05);
+        self.stick_swipe_last_update = now;
+
+        let (sx, sy, _) = self.get_controller_stick(options, true);
+        let (sx, sy) = (sx.clamp(-1.0, 1.0), sy.clamp(-1.0, 1.0));
+        let deflected = sx != 0.0 || sy != 0.0;
+
+        let (w, h) = size_for_orientation(
+            self.device_family,
+            self.device_orientation,
+            NonZeroU32::new(1).unwrap(),
+        );
+        let (w, h) = (w as f32, h as f32);
+        let centre = (w / 2.0, h / 2.0);
+        let margin = w.min(h) * 0.1;
+
+        let mut events = Vec::new();
+        match (self.stick_swipe_pos, deflected) {
+            (None, false) => (),
+            (None, true) => {
+                events.push((SwipeEvent::Down, centre));
+                self.stick_swipe_pos = Some(centre);
+            }
+            (Some(pos), false) => {
+                events.push((SwipeEvent::Up, pos));
+                self.stick_swipe_pos = None;
+            }
+            (Some((x, y)), true) => {
+                let (nx, ny) = (x + sx * speed * dt, y + sy * speed * dt);
+                if nx < margin || nx > w - margin || ny < margin || ny > h - margin {
+                    events.push((SwipeEvent::Up, (x, y)));
+                    events.push((SwipeEvent::Down, centre));
+                    self.stick_swipe_pos = Some(centre);
+                } else if (nx, ny) != (x, y) {
+                    events.push((SwipeEvent::Move, (nx, ny)));
+                    self.stick_swipe_pos = Some((nx, ny));
+                }
+            }
+        }
+        events
     }
 
     /// Update the virtual cursor's position, click state and visibility, then

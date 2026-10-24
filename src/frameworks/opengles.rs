@@ -21,7 +21,7 @@ pub const DYLIB: crate::dyld::HostDylib = crate::dyld::HostDylib {
     aliases: &[],
     class_exports: &[eagl::CLASSES],
     constant_exports: &[eagl::CONSTANTS],
-    function_exports: &[gles_guest::FUNCTIONS],
+    function_exports: &[gles_guest::FUNCTIONS, gles_guest::FUNCTIONS_ES2],
 };
 
 #[derive(Default)]

@@ -501,14 +501,20 @@ fn wcstol(
     assert_eq!(env.mem.read(ctype_locale), b'C');
 
     let w_string = env.mem.wcstr_at(nptr);
-    assert!(w_string.is_ascii()); // TODO
+    // Only an ASCII prefix can be part of a number in the C locale, and
+    // callers often pass a pointer into a much longer string, so only that
+    // prefix is converted (private Gridrunner fork).
+    let ascii_prefix: String = w_string.chars().take_while(char::is_ascii).collect();
 
-    assert!(endptr.is_null()); // TODO
-
-    let c_string = env.mem.alloc_and_write_cstr(w_string.as_bytes());
+    let c_string = env.mem.alloc_and_write_cstr(ascii_prefix.as_bytes());
     // TODO: use str_to_int_inner_generic() instead
-    let (res, _) = strtol_inner(env, c_string.cast_const(), base as u32).unwrap();
+    let parsed = strtol_inner(env, c_string.cast_const(), base as u32);
     env.mem.free(c_string.cast());
+    // Each byte of the ASCII prefix is one wide character.
+    let (res, len) = parsed.unwrap_or((0, 0));
+    if !endptr.is_null() {
+        env.mem.write(endptr, (nptr + len).cast_mut());
+    }
     log_dbg!(
         "wcstol({:?} ({:?}), {:?}, {}) -> {}",
         nptr,

@@ -13,3 +13,7 @@
 #
 # Text on a line following a hash sign (#) is treated as a comment and ignored.
 # Empty lines are also ignored.
+
+# Private Gridrunner setup: left stick drives a touch "joystick" in the lower
+# middle of the screen; the stick no longer tilts the virtual device.
+uk.co.llamasoft.gridrunner: --device-family=ipad --disable-analog-stick-tilt-controls --stick-to-swipe=1000 --button-to-touch=A,384,800

@@ -48,6 +48,7 @@ pub const NSMacOSRomanStringEncoding: NSUInteger = 30;
 pub const NSUTF16StringEncoding: NSUInteger = NSUnicodeStringEncoding;
 pub const NSUTF16BigEndianStringEncoding: NSUInteger = 0x90000100;
 pub const NSUTF16LittleEndianStringEncoding: NSUInteger = 0x94000100;
+pub const NSUTF32LittleEndianStringEncoding: NSUInteger = 0x9c000100;
 
 pub type NSStringCompareOptions = NSUInteger;
 pub const NSCaseInsensitiveSearch: NSUInteger = 1;
@@ -167,6 +168,17 @@ impl StringHostObject {
                         .map(|chunk| u16::from_le_bytes(chunk.try_into().unwrap()))
                         .collect()
                 })
+            }
+            NSUTF32LittleEndianStringEncoding => {
+                assert!(bytes.len().is_multiple_of(4));
+                let string: String = bytes
+                    .chunks(4)
+                    .map(|chunk| {
+                        let c = u32::from_le_bytes(chunk.try_into().unwrap());
+                        char::from_u32(c).unwrap_or(char::REPLACEMENT_CHARACTER)
+                    })
+                    .collect();
+                StringHostObject::Utf8(Cow::Owned(string))
             }
             _ => panic!("Unimplemented encoding: {encoding:#x}"),
         }
