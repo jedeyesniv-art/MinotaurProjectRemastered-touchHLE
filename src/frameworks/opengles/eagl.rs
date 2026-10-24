@@ -14,7 +14,7 @@ use crate::frameworks::foundation::ns_string::get_static_str;
 use crate::frameworks::foundation::NSUInteger;
 use crate::gles::gles11_raw as gles11; // constants only
 use crate::gles::gles11_raw::types::*;
-use crate::gles::present::{present_frame, FpsCounter};
+use crate::gles::present::{present_frame, upload_bezel, Bezel, FpsCounter};
 use crate::gles::{create_gles1_ctx, create_gles2_ctx, gles1_on_gl2, GLESContext, GLES};
 use crate::mem::MutPtr;
 use crate::objc::{id, msg, nil, objc_classes, release, retain, ClassExports, HostObject};
@@ -67,6 +67,8 @@ pub(super) struct EAGLContextHostObject {
     fps_counter: Option<FpsCounter>,
     next_frame_due: Option<Instant>,
     pub mapped_buffers: HashMap<GLuint, (MutPtr<GLvoid>, *mut GLvoid)>,
+    /// Private fork: this context's copy of the `--bezel` picture.
+    bezel_texture: Option<GLuint>,
 }
 impl HostObject for EAGLContextHostObject {}
 
@@ -84,6 +86,7 @@ pub const CLASSES: ClassExports = objc_classes! {
         fps_counter: None,
         next_frame_due: None,
         mapped_buffers: HashMap::new(),
+        bezel_texture: None,
     });
     env.objc.alloc_object(this, host_object, &mut env.mem)
 }
@@ -609,6 +612,16 @@ unsafe fn present_renderbuffer(env: &mut Environment) {
     let viewport = env.window.as_mut().unwrap().viewport();
     let rotation_matrix = env.window.as_mut().unwrap().rotation_matrix();
     let virtual_cursor_visible_at = env.window.as_mut().unwrap().virtual_cursor_visible_at();
+    let bezel = env.window.as_ref().unwrap().bezel();
+    let current_ctx = env
+        .framework_state
+        .opengles
+        .current_ctx_for_thread(env.current_thread)
+        .unwrap();
+    let mut bezel_texture = env
+        .objc
+        .borrow::<EAGLContextHostObject>(current_ctx)
+        .bezel_texture;
 
     let gles_ctx = super::get_thread_context(
         &mut env.framework_state.opengles,
@@ -745,8 +758,28 @@ unsafe fn present_renderbuffer(env: &mut Environment) {
         tex_env_mode_arr.as_ptr().cast(),
     );
 
+    // Upload the bezel the first time it's needed in this context.
+    let bezel = bezel.map(|(image, screen_size)| {
+        let bezel_texture = *bezel_texture.get_or_insert_with(|| {
+            let bezel_texture = upload_bezel(gles, &image);
+            gles.BindTexture(gles11::TEXTURE_2D, texture);
+            bezel_texture
+        });
+        Bezel {
+            texture: bezel_texture,
+            image_size: image.dimensions(),
+            screen_size,
+        }
+    });
+
     // Draw the quad
-    present_frame(gles, viewport, rotation_matrix, virtual_cursor_visible_at);
+    present_frame(
+        gles,
+        viewport,
+        rotation_matrix,
+        virtual_cursor_visible_at,
+        bezel,
+    );
 
     // Clean up the texture
     gles.DeleteTextures(1, &texture);
@@ -830,4 +863,9 @@ unsafe fn present_renderbuffer(env: &mut Environment) {
     }
 
     // { let err = gles.GetError(); if err != 0 { panic!("{:#x}", err); } }
+
+    std::mem::drop(gles_boxed);
+    env.objc
+        .borrow_mut::<EAGLContextHostObject>(current_ctx)
+        .bezel_texture = bezel_texture;
 }

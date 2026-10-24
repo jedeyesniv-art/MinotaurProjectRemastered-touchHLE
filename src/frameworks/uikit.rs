@@ -149,6 +149,18 @@ pub fn handle_events(env: &mut Environment) -> Option<Instant> {
                     log!("Ignoring EnterDebugger event: no debugger connected.");
                 }
             }
+            Event::ToggleRotation => {
+                use crate::window::DeviceOrientation;
+                let new_orientation = match env.window().current_rotation() {
+                    DeviceOrientation::Portrait | DeviceOrientation::PortraitUpsideDown => {
+                        DeviceOrientation::LandscapeLeft
+                    }
+                    _ => DeviceOrientation::Portrait,
+                };
+                log!("Turning the device to {:?}.", new_orientation);
+                env.on_parent_stack_in_coroutine(|window, _| window.rotate_device(new_orientation));
+                ui_device::generate_device_orientation_notification(env);
+            }
             Event::TextInput(text_event) => {
                 let responder = env.framework_state.uikit.ui_responder.first_responder;
                 let class = msg![env; responder class];

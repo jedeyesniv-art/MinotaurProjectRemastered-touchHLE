@@ -17,7 +17,7 @@ use crate::frameworks::core_graphics::cg_color::CGColorHostObject;
 use crate::frameworks::core_graphics::{cg_bitmap_context, cg_image, CGFloat, CGRect};
 use crate::gles::gles11_raw as gles11; // constants only
 use crate::gles::gles11_raw::types::*;
-use crate::gles::present::{present_frame, FpsCounter};
+use crate::gles::present::{present_frame, upload_bezel, Bezel, FpsCounter};
 use crate::gles::GLES; // constants only
 use crate::image::Image;
 use crate::matrix::Matrix;
@@ -32,6 +32,8 @@ pub(super) struct State {
     recomposite_next: Option<Instant>,
     fps_counter: Option<FpsCounter>,
     misc_gl_objects: Option<MiscGlObjects>,
+    /// Private fork: the internal context's copy of the `--bezel` picture.
+    bezel_texture: Option<GLuint>,
 }
 
 struct MiscGlObjects {
@@ -142,6 +144,7 @@ pub fn recomposite_if_necessary(env: &mut Environment, force: bool) -> Option<In
         env.window().rotation_matrix(),
         env.window().virtual_cursor_visible_at(),
     );
+    let bezel = env.window().bezel();
 
     // TODO: draw status bar if it's not hidden
 
@@ -360,6 +363,16 @@ pub fn recomposite_if_necessary(env: &mut Environment, force: bool) -> Option<In
     // Present our rendered frame (bound to TEXTURE_2D). This copies it to the
     // default framebuffer (0) so we need to unbind our internal framebuffer.
     unsafe {
+        let bezel = bezel.map(|(image, screen_size)| Bezel {
+            texture: *env
+                .framework_state
+                .core_animation
+                .composition
+                .bezel_texture
+                .get_or_insert_with(|| upload_bezel(gles.as_mut(), &image)),
+            image_size: image.dimensions(),
+            screen_size,
+        });
         gles.BindTexture(gles11::TEXTURE_2D, texture);
         gles.BindFramebufferOES(gles11::FRAMEBUFFER_OES, 0);
         present_frame(
@@ -367,6 +380,7 @@ pub fn recomposite_if_necessary(env: &mut Environment, force: bool) -> Option<In
             present_frame_args.0,
             present_frame_args.1,
             present_frame_args.2,
+            bezel,
         );
     }
     std::mem::drop(gles);

@@ -44,11 +44,20 @@ impl FpsCounter {
 /// virtual cursor is also drawn if it should be currently visible.
 ///
 /// The provided context must be current.
+/// Private fork: a picture drawn across the whole screen behind the frame.
+pub struct Bezel {
+    /// Texture with the picture's pixels, top row first.
+    pub texture: u32,
+    pub image_size: (u32, u32),
+    pub screen_size: (u32, u32),
+}
+
 pub unsafe fn present_frame(
     gles: &mut dyn GLES,
     viewport: (u32, u32, u32, u32),
     rotation_matrix: Matrix<2>,
     virtual_cursor_visible_at: Option<(f32, f32, bool)>,
+    bezel: Option<Bezel>,
 ) {
     // While this is a generic utility, it is closely tied to
     // crate::frameworks::opengles::eagl::present_renderbuffer, which handles
@@ -57,6 +66,17 @@ pub unsafe fn present_frame(
 
     use gles11::types::*;
 
+    gles.ClearColor(0.0, 0.0, 0.0, 1.0);
+    gles.Clear(gles11::COLOR_BUFFER_BIT | gles11::DEPTH_BUFFER_BIT | gles11::STENCIL_BUFFER_BIT);
+    gles.BindBuffer(gles11::ARRAY_BUFFER, 0);
+    let vertices: [f32; 12] = [
+        -1.0, -1.0, -1.0, 1.0, 1.0, -1.0, 1.0, -1.0, -1.0, 1.0, 1.0, 1.0,
+    ];
+
+    if let Some(bezel) = bezel {
+        draw_bezel(gles, &bezel, &vertices);
+    }
+
     // Draw the quad
     gles.Viewport(
         viewport.0 as _,
@@ -64,12 +84,6 @@ pub unsafe fn present_frame(
         viewport.2 as _,
         viewport.3 as _,
     );
-    gles.ClearColor(0.0, 0.0, 0.0, 1.0);
-    gles.Clear(gles11::COLOR_BUFFER_BIT | gles11::DEPTH_BUFFER_BIT | gles11::STENCIL_BUFFER_BIT);
-    gles.BindBuffer(gles11::ARRAY_BUFFER, 0);
-    let vertices: [f32; 12] = [
-        -1.0, -1.0, -1.0, 1.0, 1.0, -1.0, 1.0, -1.0, -1.0, 1.0, 1.0, 1.0,
-    ];
     gles.EnableClientState(gles11::VERTEX_ARRAY);
     gles.VertexPointer(2, gles11::FLOAT, 0, vertices.as_ptr() as *const GLvoid);
     let tex_coords: [f32; 12] = [0.0, 0.0, 0.0, 1.0, 1.0, 0.0, 1.0, 0.0, 0.0, 1.0, 1.0, 1.0];
@@ -106,4 +120,65 @@ pub unsafe fn present_frame(
         gles.VertexPointer(2, gles11::FLOAT, 0, vertices.as_ptr() as *const GLvoid);
         gles.DrawArrays(gles11::TRIANGLES, 0, 6);
     }
+}
+
+/// Private fork: upload a bezel picture to a new texture in the current
+/// context. The texture binding is left changed.
+pub unsafe fn upload_bezel(gles: &mut dyn GLES, image: &crate::image::Image) -> u32 {
+    let mut texture = 0;
+    gles.GenTextures(1, &mut texture);
+    gles.BindTexture(gles11::TEXTURE_2D, texture);
+    let (width, height) = image.dimensions();
+    gles.TexImage2D(
+        gles11::TEXTURE_2D,
+        0,
+        gles11::RGBA as _,
+        width as _,
+        height as _,
+        0,
+        gles11::RGBA,
+        gles11::UNSIGNED_BYTE,
+        image.pixels().as_ptr() as *const _,
+    );
+    for param in [gles11::TEXTURE_MIN_FILTER, gles11::TEXTURE_MAG_FILTER] {
+        gles.TexParameteri(gles11::TEXTURE_2D, param, gles11::LINEAR as _);
+    }
+    texture
+}
+
+/// Draw the bezel over the whole screen, cropped to fill it, leaving the
+/// frame's texture bound afterwards.
+unsafe fn draw_bezel(gles: &mut dyn GLES, bezel: &Bezel, vertices: &[f32; 12]) {
+    use gles11::types::*;
+
+    let mut frame_texture: GLint = 0;
+    gles.GetIntegerv(gles11::TEXTURE_BINDING_2D, &mut frame_texture);
+
+    let (screen_w, screen_h) = bezel.screen_size;
+    gles.Viewport(0, 0, screen_w as _, screen_h as _);
+
+    let image_aspect = bezel.image_size.0 as f32 / bezel.image_size.1 as f32;
+    let screen_aspect = screen_w as f32 / screen_h as f32;
+    let (du, dv) = if image_aspect > screen_aspect {
+        ((1.0 - screen_aspect / image_aspect) / 2.0, 0.0)
+    } else {
+        (0.0, (1.0 - image_aspect / screen_aspect) / 2.0)
+    };
+    let (u0, u1, v_top, v_bottom) = (du, 1.0 - du, dv, 1.0 - dv);
+    // Same corners as `vertices`; the image's first row is its top.
+    let tex_coords: [f32; 12] = [
+        u0, v_bottom, u0, v_top, u1, v_bottom, u1, v_bottom, u0, v_top, u1, v_top,
+    ];
+
+    gles.BindTexture(gles11::TEXTURE_2D, bezel.texture);
+    gles.MatrixMode(gles11::TEXTURE);
+    gles.LoadIdentity();
+    gles.EnableClientState(gles11::VERTEX_ARRAY);
+    gles.VertexPointer(2, gles11::FLOAT, 0, vertices.as_ptr() as *const GLvoid);
+    gles.EnableClientState(gles11::TEXTURE_COORD_ARRAY);
+    gles.TexCoordPointer(2, gles11::FLOAT, 0, tex_coords.as_ptr() as *const GLvoid);
+    gles.Enable(gles11::TEXTURE_2D);
+    gles.DrawArrays(gles11::TRIANGLES, 0, 6);
+
+    gles.BindTexture(gles11::TEXTURE_2D, frame_texture as GLuint);
 }

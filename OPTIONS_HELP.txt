@@ -225,6 +225,29 @@ Game controller options:
         speed (default 1, the game's own), e.g. --icade-analog=0.0625,1.25.
         Easing off, letting go and reversing take effect immediately.
 
+    --button-to-rotate=...
+        (Private Gridrunner fork.) Each press of this controller button turns
+        the virtual device between portrait and landscape, as if it had been
+        physically rotated, e.g. --button-to-rotate=Back.
+
+    --bezel=...
+        (Private Gridrunner fork.) A picture (PNG or JPEG, path relative to the
+        touchHLE folder) drawn across the whole screen behind the app, like an
+        arcade cabinet's artwork, while fullscreen in portrait. It is scaled to
+        cover the screen, so make it the screen's size or shape for best
+        results, e.g. --bezel=gridrunner_bezel.png.
+
+    --landscape-fill-screen
+        (Private Gridrunner fork.) With --integer-scaling and --fullscreen, stop
+        using whole-number scaling while the device is in landscape, so the
+        picture fills the screen's height instead.
+
+    --landscape-button-to-touch=...
+        (Private Gridrunner fork.) Like --button-to-touch, but used instead of
+        it while the device is in landscape. Co-ordinates are in the landscape
+        screen (1024x768 on an iPad), e.g.
+        --landscape-button-to-touch=Start,512,285.
+
     --stick-mode-toggle=...
         (Private Gridrunner fork.) Pressing this button (any button name
         accepted by --button-to-touch, or Back) switches the --stick-to-swipe

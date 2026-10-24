@@ -50,6 +50,24 @@ fn parse_button(name: &str, option: &str) -> Result<Button, String> {
     }
 }
 
+/// Parses `BUTTON,X,Y` as used by `--button-to-touch=`.
+fn parse_button_to_touch(values: &str, option: &str) -> Result<(Button, (f32, f32)), String> {
+    let (button, coords) = values
+        .split_once(',')
+        .ok_or_else(|| format!("{option} requires three values"))?;
+    let (x, y) = coords
+        .split_once(',')
+        .ok_or_else(|| format!("{option} requires three values"))?;
+    let button = parse_button(button, option)?;
+    let x: f32 = x
+        .parse()
+        .map_err(|_| format!("Invalid X co-ordinate for {option}"))?;
+    let y: f32 = y
+        .parse()
+        .map_err(|_| format!("Invalid Y co-ordinate for {option}"))?;
+    Ok((button, (x, y)))
+}
+
 /// Struct containing all user-configurable options.
 #[derive(Clone)]
 pub struct Options {
@@ -67,6 +85,10 @@ pub struct Options {
     pub dpi_aware: bool,
     /// Private fork: see `--integer-scaling` in OPTIONS_HELP.txt.
     pub integer_scaling: bool,
+    /// Private fork: ignore --integer-scaling in landscape and fill the screen.
+    pub landscape_fill_screen: bool,
+    /// Private fork: picture drawn behind the app in fullscreen portrait.
+    pub bezel: Option<String>,
     pub deadzone: f32,
     pub analog_stick_tilt_controls: bool,
     pub x_tilt_range: f32,
@@ -74,6 +96,11 @@ pub struct Options {
     pub x_tilt_offset: f32,
     pub y_tilt_offset: f32,
     pub button_to_touch: HashMap<Button, (f32, f32)>,
+    /// Private fork: replaces `button_to_touch` while the device is landscape.
+    pub landscape_button_to_touch: HashMap<Button, (f32, f32)>,
+    /// Private fork: this button turns the device between portrait and
+    /// landscape.
+    pub button_to_rotate: Option<Button>,
     pub dpad_to_touch: Option<(f32, f32, f32, f32)>,
     pub stick_to_touch: Option<(f32, f32, f32, f32)>,
     /// See [crate::window::Window::update_stick_swipe] (private fork).
@@ -116,6 +143,8 @@ impl Default for Options {
             window_scale: NonZeroU32::new(1).unwrap(),
             dpi_aware: false,
             integer_scaling: false,
+            landscape_fill_screen: false,
+            bezel: None,
             nearest_textures: false,
             device_family: None,
             initial_orientation: DeviceOrientation::Portrait,
@@ -127,6 +156,8 @@ impl Default for Options {
             x_tilt_offset: 0.0,
             y_tilt_offset: 0.0,
             button_to_touch: HashMap::new(),
+            landscape_button_to_touch: HashMap::new(),
+            button_to_rotate: None,
             dpad_to_touch: None,
             stick_to_touch: None,
             stick_to_swipe: None,
@@ -179,6 +210,10 @@ impl Options {
             self.dpi_aware = true;
         } else if arg == "--integer-scaling" {
             self.integer_scaling = true;
+        } else if arg == "--landscape-fill-screen" {
+            self.landscape_fill_screen = true;
+        } else if let Some(path) = arg.strip_prefix("--bezel=") {
+            self.bezel = Some(path.to_string());
         } else if arg == "--nearest-present" {
             self.nearest_present = true;
         } else if arg == "--nearest-textures" {
@@ -210,20 +245,14 @@ impl Options {
         } else if let Some(value) = arg.strip_prefix("--y-tilt-offset=") {
             self.y_tilt_offset = parse_degrees(value, "Y tilt offset")?;
         } else if let Some(values) = arg.strip_prefix("--button-to-touch=") {
-            let (button, coords) = values
-                .split_once(',')
-                .ok_or_else(|| "--button-to-touch= requires three values".to_string())?;
-            let (x, y) = coords
-                .split_once(',')
-                .ok_or_else(|| "--button-to-touch= requires three values".to_string())?;
-            let button = parse_button(button, "--button-to-touch=")?;
-            let x: f32 = x
-                .parse()
-                .map_err(|_| "Invalid X co-ordinate for --button-to-touch=".to_string())?;
-            let y: f32 = y
-                .parse()
-                .map_err(|_| "Invalid Y co-ordinate for --button-to-touch=".to_string())?;
-            self.button_to_touch.insert(button, (x, y));
+            let (button, coords) = parse_button_to_touch(values, "--button-to-touch=")?;
+            self.button_to_touch.insert(button, coords);
+        } else if let Some(values) = arg.strip_prefix("--landscape-button-to-touch=") {
+            let (button, coords) =
+                parse_button_to_touch(values, "--landscape-button-to-touch=")?;
+            self.landscape_button_to_touch.insert(button, coords);
+        } else if let Some(value) = arg.strip_prefix("--button-to-rotate=") {
+            self.button_to_rotate = Some(parse_button(value, "--button-to-rotate=")?);
         } else if let Some(values) = arg.strip_prefix("--stick-to-touch=") {
             let nums: [f32; 4] = values
                 .split(',')

@@ -171,6 +171,9 @@ pub enum Event {
     /// take over.
     EnterDebugger,
     TextInput(TextInputEvent),
+    /// Private fork: turn the device between portrait and landscape
+    /// (`--button-to-rotate`).
+    ToggleRotation,
 }
 
 pub enum BatteryState {
@@ -239,6 +242,10 @@ pub struct Window {
     /// Private fork: `--window-scale=`, `--integer-scaling`.
     window_scale: u32,
     integer_scaling: bool,
+    /// See `--landscape-fill-screen`.
+    landscape_fill_screen: bool,
+    /// See `--bezel`.
+    bezel_image: Option<std::rc::Rc<Image>>,
     internal_gl_ins: Option<Box<dyn GLESContext>>,
     splash_image: Option<Image>,
     device_family: DeviceFamily,
@@ -413,6 +420,17 @@ impl Window {
             scale_hack,
             window_scale: options.window_scale.get(),
             integer_scaling: options.integer_scaling,
+            landscape_fill_screen: options.landscape_fill_screen,
+            bezel_image: options.bezel.as_ref().and_then(|path| {
+                let path = crate::paths::user_data_base_path().join(path);
+                match std::fs::read(&path).map_err(|e| e.to_string()).and_then(|b| Image::from_bytes(&b)) {
+                    Ok(image) => Some(std::rc::Rc::new(image)),
+                    Err(e) => {
+                        log!("Couldn't load bezel {:?}: {}", path, e);
+                        None
+                    }
+                }
+            }),
             internal_gl_ins: None,
             splash_image: launch_image,
             device_family,
@@ -571,6 +589,9 @@ impl Window {
             // doesn't come straight back.
             if let E::ControllerButtonDown { button, .. } = event {
                 let button = translate_button(button);
+                if button.is_some() && button == options.button_to_rotate {
+                    self.event_queue.push_back(Event::ToggleRotation);
+                }
                 let toggles = button.is_some_and(|b| {
                     options.stick_mode_toggle.is_some_and(|(toggle, _)| toggle == b)
                 });
@@ -581,7 +602,7 @@ impl Window {
                         if self.virtual_stick { "virtual stick" } else { "swipe" }
                     );
                 }
-                let mapped = button.is_some_and(|b| options.button_to_touch.contains_key(&b));
+                let mapped = button.is_some_and(|b| self.button_to_touch(options).contains_key(&b));
                 if mapped || toggles {
                     self.swipe_blocked_until = Instant::now() + Duration::from_millis(250);
                     if let Some(pos) = self.stick_swipe_pos.take() {
@@ -748,7 +769,7 @@ impl Window {
                             continue;
                         }
                     } else {
-                        let Some(&(x, y)) = options.button_to_touch.get(&button) else {
+                        let Some(&(x, y)) = self.button_to_touch(options).get(&button) else {
                             continue;
                         };
                         match event {
@@ -1278,6 +1299,36 @@ impl Window {
         text
     }
 
+    /// Private fork: the `--bezel` picture and the screen size to draw it at,
+    /// if one should be drawn now (fullscreen, portrait).
+    pub fn bezel(&self) -> Option<(std::rc::Rc<Image>, (u32, u32))> {
+        let portrait = matches!(
+            self.device_orientation,
+            DeviceOrientation::Portrait | DeviceOrientation::PortraitUpsideDown
+        );
+        if !self.fullscreen || !portrait {
+            return None;
+        }
+        let image = self.bezel_image.clone()?;
+        Some((image, self.window.drawable_size()))
+    }
+
+    /// Private fork: the button-to-touch mapping for the current orientation.
+    fn button_to_touch<'a>(
+        &self,
+        options: &'a Options,
+    ) -> &'a std::collections::HashMap<crate::options::Button, (f32, f32)> {
+        let landscape = matches!(
+            self.device_orientation,
+            DeviceOrientation::LandscapeLeft | DeviceOrientation::LandscapeRight
+        );
+        if landscape && !options.landscape_button_to_touch.is_empty() {
+            &options.landscape_button_to_touch
+        } else {
+            &options.button_to_touch
+        }
+    }
+
     /// Private fork: the left stick's position after the deadzone, each axis
     /// in [-1, 1].
     pub fn left_stick(&self, options: &Options) -> (f32, f32) {
@@ -1542,6 +1593,7 @@ impl Window {
                 viewport,
                 matrix,
                 /* virtual_cursor_visible_at: */ None,
+                /* bezel: */ None,
             );
 
             gl_ctx.DeleteTextures(1, &texture);
@@ -1665,7 +1717,11 @@ impl Window {
 
         let (screen_width, screen_height) = self.window.drawable_size();
 
-        if self.integer_scaling {
+        let landscape = matches!(
+            self.device_orientation,
+            DeviceOrientation::LandscapeLeft | DeviceOrientation::LandscapeRight
+        );
+        if self.integer_scaling && !(landscape && self.landscape_fill_screen) {
             let factor = (screen_width / app_width).min(screen_height / app_height).max(1);
             let (scaled_width, scaled_height) = (app_width * factor, app_height * factor);
             let x = screen_width.saturating_sub(scaled_width) / 2;
