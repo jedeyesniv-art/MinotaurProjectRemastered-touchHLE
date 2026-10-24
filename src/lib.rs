@@ -126,6 +126,19 @@ fn log_panics() {
     }));
 }
 
+/// Private fork: if the apps directory holds exactly one app, its path, so it
+/// can be started without going through the app picker.
+fn only_app_in_apps_dir() -> Option<PathBuf> {
+    let dir = paths::user_data_base_path().join(paths::APPS_DIR);
+    let mut apps = std::fs::read_dir(dir).ok()?.filter_map(|entry| {
+        let path = entry.ok()?.path();
+        let ext = path.extension()?.to_str()?.to_ascii_lowercase();
+        (ext == "app" || ext == "ipa").then_some(path)
+    });
+    let app = apps.next()?;
+    apps.next().is_none().then_some(app)
+}
+
 pub fn main<T: Iterator<Item = String>>(mut args: T) -> Result<(), String> {
     #[cfg(not(target_os = "android"))]
     log_panics();
@@ -209,12 +222,17 @@ pub fn main<T: Iterator<Item = String>>(mut args: T) -> Result<(), String> {
                 "No app specified. Use the --help flag to see command-line usage.".to_string(),
             );
         }
-        echo!(
-            "No app specified, opening app picker. Use the --help flag to see command-line usage."
-        );
-        let (bundle_path, mut extra_options) = environment::app_picker::app_picker(options)?;
-        option_args.append(&mut extra_options);
-        bundle_path
+        if let Some(only_app) = only_app_in_apps_dir() {
+            echo!("No app specified, starting the only app installed: {:?}", only_app);
+            only_app
+        } else {
+            echo!(
+                "No app specified, opening app picker. Use the --help flag to see command-line usage."
+            );
+            let (bundle_path, mut extra_options) = environment::app_picker::app_picker(options)?;
+            option_args.append(&mut extra_options);
+            bundle_path
+        }
     };
 
     // When PowerShell does tab-completion on a directory, for some reason it

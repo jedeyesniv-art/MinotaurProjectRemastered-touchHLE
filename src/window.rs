@@ -261,6 +261,8 @@ pub struct Window {
     mouse_swipe_delta: (f32, f32),
     mouse_swipe_sensitivity: f32,
     cursor_hidden: bool,
+    /// The mouse is in relative mode (see `--mouse-to-swipe`).
+    mouse_captured: bool,
     _sensor_ctx: sdl2::SensorSubsystem,
     accelerometer: Option<sdl2::sensor::Sensor>,
     virtual_cursor_last: Option<(f32, f32, bool, bool)>,
@@ -434,6 +436,7 @@ impl Window {
             mouse_swipe_delta: (0.0, 0.0),
             mouse_swipe_sensitivity: options.mouse_to_swipe.unwrap_or(1.0),
             cursor_hidden: false,
+            mouse_captured: false,
             _sensor_ctx: sensor_ctx,
             accelerometer,
             virtual_cursor_last: None,
@@ -455,6 +458,13 @@ impl Window {
 
         if window.splash_image.is_some() {
             window.display_splash();
+        }
+
+        // Private fork: in fullscreen, capture the mouse so it can steer
+        // without limit; the cursor is hidden everywhere.
+        if options.mouse_to_swipe.is_some() && options.fullscreen {
+            window._sdl_ctx.mouse().set_relative_mouse_mode(true);
+            window.mouse_captured = true;
         }
 
         window
@@ -1277,14 +1287,12 @@ impl Window {
 
     /// `--mouse-to-swipe` (private fork): accumulate mouse movement for
     /// [Self::update_stick_swipe] and hide the cursor while it is over the
-    /// app's picture.
+    /// app's picture (or everywhere, once the mouse is captured).
     fn handle_mouse_swipe_motion(&mut self, x: i32, y: i32, xrel: i32, yrel: i32, buttons: bool) {
         let (vx, vy, vw, vh) = self.viewport();
-        let inside = x >= vx as i32
-            && y >= vy as i32
-            && x < (vx + vw) as i32
-            && y < (vy + vh) as i32;
-        if inside != self.cursor_hidden {
+        let inside = self.mouse_captured
+            || (x >= vx as i32 && y >= vy as i32 && x < (vx + vw) as i32 && y < (vy + vh) as i32);
+        if !self.mouse_captured && inside != self.cursor_hidden {
             self._sdl_ctx.mouse().show_cursor(!inside);
             self.cursor_hidden = inside;
         }
