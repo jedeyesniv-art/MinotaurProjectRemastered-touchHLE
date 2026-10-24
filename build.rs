@@ -104,6 +104,42 @@ pub fn main() {
     if std::env::var("CARGO_CFG_TARGET_OS").unwrap() == "windows" {
         // Rust removed link to advapi32 here https://github.com/rust-lang/rust/pull/138233
         // but sdl2 still depends on it
-        println!("cargo::rustc-link-lib=advapi32")
+        println!("cargo::rustc-link-lib=advapi32");
+
+        embed_exe_icon(package_root, &out_dir);
     }
+}
+
+/// Private Gridrunner fork: compile res/gridrunner.rc with the Windows SDK's
+/// resource compiler and link it into the executable, giving it an icon.
+fn embed_exe_icon(package_root: &Path, out_dir: &Path) {
+    let rc_path = package_root.join("res/gridrunner.rc");
+    rerun_if_changed(&rc_path);
+    rerun_if_changed(&package_root.join("res/gridrunner.ico"));
+
+    let rc_exe = std::env::var_os("RC").map(PathBuf::from).or_else(|| {
+        let kits = Path::new(r"C:\Program Files (x86)\Windows Kits\10\bin");
+        let mut versions: Vec<PathBuf> = std::fs::read_dir(kits)
+            .ok()?
+            .filter_map(|entry| Some(entry.ok()?.path().join(r"x64\rc.exe")))
+            .filter(|path| path.exists())
+            .collect();
+        versions.sort();
+        versions.pop()
+    });
+    let Some(rc_exe) = rc_exe else {
+        println!("cargo::warning=rc.exe not found, the executable will have no icon");
+        return;
+    };
+
+    let res_path = out_dir.join("gridrunner.res");
+    let status = std::process::Command::new(rc_exe)
+        .arg("/nologo")
+        .arg("/fo")
+        .arg(&res_path)
+        .arg(&rc_path)
+        .status()
+        .unwrap();
+    assert!(status.success(), "rc.exe failed");
+    println!("cargo::rustc-link-arg-bins={}", res_path.to_str().unwrap());
 }
