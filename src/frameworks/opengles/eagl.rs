@@ -600,6 +600,11 @@ unsafe fn restore_es2_state(gles: &mut dyn GLES, state: Es2PresentState) {
 }
 
 unsafe fn present_renderbuffer(env: &mut Environment) {
+    let present_filter = if env.options.nearest_present {
+        gles11::NEAREST
+    } else {
+        gles11::LINEAR
+    };
     // Save these for when we need to draw the frame
     let viewport = env.window.as_mut().unwrap().viewport();
     let rotation_matrix = env.window.as_mut().unwrap().rotation_matrix();
@@ -663,7 +668,12 @@ unsafe fn present_renderbuffer(env: &mut Environment) {
     gles.TexParameteri(
         gles11::TEXTURE_2D,
         gles11::TEXTURE_MIN_FILTER,
-        gles11::LINEAR as _,
+        present_filter as _,
+    );
+    gles.TexParameteri(
+        gles11::TEXTURE_2D,
+        gles11::TEXTURE_MAG_FILTER,
+        present_filter as _,
     );
 
     // Clean up the framebuffer object since we no longer need it.

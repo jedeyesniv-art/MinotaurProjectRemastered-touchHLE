@@ -5,7 +5,7 @@
  */
 //! `AudioComponent.h` (Audio Component Services)
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::time::Instant;
 
 use crate::abi::GuestFunction;
@@ -49,6 +49,8 @@ pub struct AudioComponentInstanceHostObject {
     pub last_render_time: Option<Instant>,
     pub al_source: Option<ALuint>,
     pub is_running_handler: bool,
+    /// Frame counts of the buffers currently queued in OpenAL, oldest first.
+    pub queued_frames: VecDeque<u32>,
 }
 impl Default for AudioComponentInstanceHostObject {
     fn default() -> Self {
@@ -78,6 +80,7 @@ impl Default for AudioComponentInstanceHostObject {
             last_render_time: None,
             al_source: None,
             is_running_handler: false,
+            queued_frames: VecDeque::new(),
         }
     }
 }

@@ -968,12 +968,31 @@ fn glBindTexture(env: &mut Environment, target: GLenum, texture: GLuint) {
         gles.BindTexture(target, texture)
     })
 }
+/// `--nearest-textures` (private fork): replace a filter mode with its
+/// nearest-neighbour equivalent.
+fn nearest_filter(param: GLint) -> GLint {
+    (match param as GLenum {
+        gles11::LINEAR => gles11::NEAREST,
+        gles11::LINEAR_MIPMAP_LINEAR
+        | gles11::LINEAR_MIPMAP_NEAREST
+        | gles11::NEAREST_MIPMAP_LINEAR => gles11::NEAREST_MIPMAP_NEAREST,
+        other => other,
+    }) as GLint
+}
+
 fn glTexParameteri(env: &mut Environment, target: GLenum, pname: GLenum, param: GLint) {
     // So long as we haven't implemented glDrawTexOES yet, we can just ignore
     // this parameter, because it doesn't do anything for normal texture use.
     if pname == gles11::TEXTURE_CROP_RECT_OES {
         return;
     }
+    let param = if env.options.nearest_textures
+        && (pname == gles11::TEXTURE_MIN_FILTER || pname == gles11::TEXTURE_MAG_FILTER)
+    {
+        nearest_filter(param)
+    } else {
+        param
+    };
     with_ctx_and_mem(env, |gles, _mem| unsafe {
         gles.TexParameteri(target, pname, param)
     })
@@ -1066,7 +1085,11 @@ fn glTexImage2D(
     type_: GLenum,
     pixels: ConstVoidPtr,
 ) {
+    let nearest_textures = env.options.nearest_textures;
     with_ctx_and_mem(env, |gles, mem| unsafe {
+        if nearest_textures && level == 0 {
+            gles.TexParameteri(target, gles11::TEXTURE_MAG_FILTER, gles11::NEAREST as _);
+        }
         let pixels = if pixels.is_null() {
             std::ptr::null()
         } else {

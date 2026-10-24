@@ -22,6 +22,31 @@ View options:
         and it will automatically rotate the window, but some apps neglect to
         do this. These options may be useful in that case.
 
+    --dpi-aware
+        (Private fork, Windows.) Tell Windows that touchHLE handles high-DPI
+        displays itself, so the window is not bitmap-stretched (which blurs
+        it) when display scaling is above 100%. Window sizes become physical
+        pixels, so combine with --window-scale= to keep a useful size.
+
+    --window-scale=...
+        (Private fork.) Make the window this many times the app's screen size,
+        e.g. --window-scale=2. Unlike --scale-hack, the app still renders at
+        its normal resolution. Use with --nearest-present for crisp pixels.
+
+    --integer-scaling
+        (Private fork.) In full screen, scale the app's output by the largest
+        whole number that fits, centred with black borders.
+
+    --nearest-present
+        (Private fork.) Scale the app's output to the window with
+        nearest-neighbour sampling instead of bilinear filtering. Sharpest
+        with whole-number scale factors.
+
+    --nearest-textures
+        (Private fork.) Force nearest-neighbour filtering for all of the app's
+        textures. Can make pixel art sharper, but may make effects that rely
+        on smooth filtering (glows, blurs) look blocky.
+
     --scale-hack=...
         Set a scaling factor for the window. touchHLE will attempt to run the
         app with an increased internal resolution. This is a hack and there's
@@ -174,6 +199,16 @@ Game controller options:
         --stick-to-swipe=900. The finger touches down at the screen centre when
         the stick is pushed, lifts when it is released, and is recentred
         whenever it nears the edge of the screen.
+
+    --mouse-to-swipe=...
+        (Private Gridrunner fork.) Moving the mouse (with no button held) over
+        the app slides the same finger as --stick-to-swipe, by the distance
+        moved times this sensitivity, e.g. --mouse-to-swipe=1. The cursor is
+        hidden while over the app. Left-click still taps at the cursor.
+
+    --swipe-origin=...
+        (Private Gridrunner fork.) Where the --stick-to-swipe/--mouse-to-swipe
+        finger touches down, as x,y in screen points. Default: screen centre.
 
     --stabilize-virtual-cursor=...
         Apply motion smoothing and a sticky radius to the virtual cursor

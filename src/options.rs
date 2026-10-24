@@ -35,9 +35,19 @@ pub enum Button {
 #[derive(Clone)]
 pub struct Options {
     pub fullscreen: bool,
+    /// Private fork: scale the app's frame to the window without filtering.
+    pub nearest_present: bool,
+    /// Private fork: force nearest-neighbour filtering of app textures.
+    pub nearest_textures: bool,
     pub device_family: Option<DeviceFamily>,
     pub initial_orientation: DeviceOrientation,
     pub scale_hack: NonZeroU32,
+    /// Private fork: see `--window-scale=` in OPTIONS_HELP.txt.
+    pub window_scale: NonZeroU32,
+    /// Private fork: see `--dpi-aware` in OPTIONS_HELP.txt.
+    pub dpi_aware: bool,
+    /// Private fork: see `--integer-scaling` in OPTIONS_HELP.txt.
+    pub integer_scaling: bool,
     pub deadzone: f32,
     pub analog_stick_tilt_controls: bool,
     pub x_tilt_range: f32,
@@ -49,6 +59,11 @@ pub struct Options {
     pub stick_to_touch: Option<(f32, f32, f32, f32)>,
     /// See [crate::window::Window::update_stick_swipe] (private fork).
     pub stick_to_swipe: Option<f32>,
+    /// Private fork: mouse movement drives the swipe finger, with this
+    /// sensitivity. Also hides the cursor over the app.
+    pub mouse_to_swipe: Option<f32>,
+    /// Private fork: where the swipe finger touches down (screen points).
+    pub swipe_origin: Option<(f32, f32)>,
     pub stabilize_virtual_cursor: Option<(f32, f32)>,
     pub gles1_implementation: Option<GLESImplementation>,
     pub direct_memory_access: bool,
@@ -70,6 +85,11 @@ impl Default for Options {
     fn default() -> Self {
         Options {
             fullscreen: false,
+            nearest_present: false,
+            window_scale: NonZeroU32::new(1).unwrap(),
+            dpi_aware: false,
+            integer_scaling: false,
+            nearest_textures: false,
             device_family: None,
             initial_orientation: DeviceOrientation::Portrait,
             scale_hack: NonZeroU32::new(1).unwrap(),
@@ -83,6 +103,8 @@ impl Default for Options {
             dpad_to_touch: None,
             stick_to_touch: None,
             stick_to_swipe: None,
+            mouse_to_swipe: None,
+            swipe_origin: None,
             stabilize_virtual_cursor: None,
             gles1_implementation: None,
             direct_memory_access: true,
@@ -119,6 +141,18 @@ impl Options {
 
         if arg == "--fullscreen" {
             self.fullscreen = true;
+        } else if let Some(value) = arg.strip_prefix("--window-scale=") {
+            self.window_scale = value
+                .parse()
+                .map_err(|_| "Invalid window scale factor".to_string())?;
+        } else if arg == "--dpi-aware" {
+            self.dpi_aware = true;
+        } else if arg == "--integer-scaling" {
+            self.integer_scaling = true;
+        } else if arg == "--nearest-present" {
+            self.nearest_present = true;
+        } else if arg == "--nearest-textures" {
+            self.nearest_textures = true;
         } else if arg == "--upside-down" {
             self.initial_orientation = DeviceOrientation::PortraitUpsideDown;
         } else if arg == "--landscape-left" {
@@ -182,6 +216,20 @@ impl Options {
                 .map_err(|_| "--stick-to-touch= requires four values".to_string())?;
 
             self.stick_to_touch = Some((nums[0], nums[1], nums[2], nums[3]));
+        } else if let Some(value) = arg.strip_prefix("--mouse-to-swipe=") {
+            let sensitivity: f32 = value
+                .parse()
+                .ok()
+                .filter(|&s: &f32| s > 0.0)
+                .ok_or_else(|| "--mouse-to-swipe= requires a positive sensitivity".to_string())?;
+            self.mouse_to_swipe = Some(sensitivity);
+        } else if let Some(value) = arg.strip_prefix("--swipe-origin=") {
+            let (x, y) = value
+                .split_once(',')
+                .ok_or_else(|| "--swipe-origin= requires two values".to_string())?;
+            let x: f32 = x.parse().map_err(|_| "Invalid --swipe-origin= X".to_string())?;
+            let y: f32 = y.parse().map_err(|_| "Invalid --swipe-origin= Y".to_string())?;
+            self.swipe_origin = Some((x, y));
         } else if let Some(value) = arg.strip_prefix("--stick-to-swipe=") {
             let speed: f32 = value
                 .parse()

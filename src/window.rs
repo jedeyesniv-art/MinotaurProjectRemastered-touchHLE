@@ -236,6 +236,9 @@ pub struct Window {
     /// [Self::rotatable_fullscreen] returns [true].
     fullscreen: bool,
     scale_hack: NonZeroU32,
+    /// Private fork: `--window-scale=`, `--integer-scaling`.
+    window_scale: u32,
+    integer_scaling: bool,
     internal_gl_ins: Option<Box<dyn GLESContext>>,
     splash_image: Option<Image>,
     device_family: DeviceFamily,
@@ -247,6 +250,11 @@ pub struct Window {
     /// Position of the simulated finger for `--stick-to-swipe`, if touching.
     stick_swipe_pos: Option<(f32, f32)>,
     stick_swipe_last_update: Instant,
+    swipe_last_activity: Instant,
+    /// Mouse movement not yet applied to the swipe finger, in screen points.
+    mouse_swipe_delta: (f32, f32),
+    mouse_swipe_sensitivity: f32,
+    cursor_hidden: bool,
     _sensor_ctx: sdl2::SensorSubsystem,
     accelerometer: Option<sdl2::sensor::Sensor>,
     virtual_cursor_last: Option<(f32, f32, bool, bool)>,
@@ -272,6 +280,11 @@ impl Window {
         launch_image: Option<Image>,
         options: &Options,
     ) -> Window {
+        if options.dpi_aware {
+            // Private fork: stop Windows from bitmap-stretching (and blurring)
+            // the window on high-DPI displays. Sizes are then real pixels.
+            sdl2::hint::set("SDL_WINDOWS_DPI_AWARENESS", "permonitorv2");
+        }
         let sdl_ctx = sdl2::init().unwrap();
         let video_ctx = sdl_ctx.video().unwrap();
 
@@ -332,6 +345,8 @@ impl Window {
         } else {
             let (width, height) =
                 size_for_orientation(device_family, device_orientation, scale_hack);
+            let window_scale = options.window_scale.get();
+            let (width, height) = (width * window_scale, height * window_scale);
             let window = video_ctx
                 .window(title, width, height)
                 .position_centered()
@@ -388,6 +403,8 @@ impl Window {
             viewport_y_offset: 0,
             fullscreen,
             scale_hack,
+            window_scale: options.window_scale.get(),
+            integer_scaling: options.integer_scaling,
             internal_gl_ins: None,
             splash_image: launch_image,
             device_family,
@@ -404,6 +421,10 @@ impl Window {
             stick_active: false,
             stick_swipe_pos: None,
             stick_swipe_last_update: Instant::now(),
+            swipe_last_activity: Instant::now(),
+            mouse_swipe_delta: (0.0, 0.0),
+            mouse_swipe_sensitivity: options.mouse_to_swipe.unwrap_or(1.0),
+            cursor_hidden: false,
             _sensor_ctx: sensor_ctx,
             accelerometer,
             virtual_cursor_last: None,
@@ -524,6 +545,21 @@ impl Window {
             } else {
                 break;
             };
+
+            if options.mouse_to_swipe.is_some() {
+                if let E::MouseMotion {
+                    x,
+                    y,
+                    xrel,
+                    yrel,
+                    mousestate,
+                    ..
+                } = event
+                {
+                    let buttons = mousestate.left() || mousestate.right();
+                    self.handle_mouse_swipe_motion(x, y, xrel, yrel, buttons);
+                }
+            }
 
             // Virtual accelerometer
             match event {
@@ -858,8 +894,8 @@ impl Window {
             })
         }
 
-        if let Some(speed) = options.stick_to_swipe {
-            for (kind, pos) in self.update_stick_swipe(options, speed, now) {
+        if options.stick_to_swipe.is_some() || options.mouse_to_swipe.is_some() {
+            for (kind, pos) in self.update_stick_swipe(options, now) {
                 let coords = transform_input_coords(self, pos, true);
                 let touches = HashMap::from([(FingerId::StickToTouch, coords)]);
                 self.event_queue.push_back(match kind {
@@ -1041,19 +1077,22 @@ impl Window {
         }
     }
 
-    /// `--stick-to-swipe` (private Gridrunner fork): the left analog stick
-    /// drives a finger that slides across the screen with a velocity
-    /// proportional to the stick's deflection, for apps that use relative
-    /// ("trackpad") touch movement. The finger goes down at the centre of the
-    /// screen when the stick leaves the dead zone and lifts when it returns.
-    /// When the finger nears the edge it is lifted and put back down at the
-    /// centre, which such apps don't notice. Positions are in screen points.
+    /// `--stick-to-swipe` / `--mouse-to-swipe` (private Gridrunner fork): the
+    /// left analog stick and/or mouse movement drive a finger that slides
+    /// across the screen, for apps that use relative ("trackpad") touch
+    /// movement. The stick moves it with a velocity proportional to its
+    /// deflection; the mouse moves it by the distance the mouse moved. The
+    /// finger touches down at the swipe origin (default: screen centre) when
+    /// either starts moving, and lifts once both have been idle briefly. When
+    /// it nears the edge it is lifted and put back down at the origin, which
+    /// such apps don't notice. Positions are in screen points.
     fn update_stick_swipe(
         &mut self,
         options: &Options,
-        speed: f32,
         now: Instant,
     ) -> Vec<(SwipeEvent, (f32, f32))> {
+        const IDLE_RELEASE: Duration = Duration::from_millis(150);
+
         // Cap the time step so a stall doesn't make the finger jump.
         let dt = now
             .saturating_duration_since(self.stick_swipe_last_update)
@@ -1061,9 +1100,22 @@ impl Window {
             .min(0.05);
         self.stick_swipe_last_update = now;
 
-        let (sx, sy, _) = self.get_controller_stick(options, true);
-        let (sx, sy) = (sx.clamp(-1.0, 1.0), sy.clamp(-1.0, 1.0));
-        let deflected = sx != 0.0 || sy != 0.0;
+        let (sx, sy) = if let Some(speed) = options.stick_to_swipe {
+            let (sx, sy, _) = self.get_controller_stick(options, true);
+            (sx.clamp(-1.0, 1.0) * speed * dt, sy.clamp(-1.0, 1.0) * speed * dt)
+        } else {
+            (0.0, 0.0)
+        };
+        let (mx, my) = std::mem::take(&mut self.mouse_swipe_delta);
+        let (dx, dy) = (sx + mx, sy + my);
+        let stick_held = options.stick_to_swipe.is_some() && {
+            let (x, y, _) = self.get_controller_stick(options, true);
+            x != 0.0 || y != 0.0
+        };
+        if stick_held || dx != 0.0 || dy != 0.0 {
+            self.swipe_last_activity = now;
+        }
+        let idle = now.saturating_duration_since(self.swipe_last_activity) > IDLE_RELEASE;
 
         let (w, h) = size_for_orientation(
             self.device_family,
@@ -1071,26 +1123,26 @@ impl Window {
             NonZeroU32::new(1).unwrap(),
         );
         let (w, h) = (w as f32, h as f32);
-        let centre = (w / 2.0, h / 2.0);
+        let origin = options.swipe_origin.unwrap_or((w / 2.0, h / 2.0));
         let margin = w.min(h) * 0.1;
 
         let mut events = Vec::new();
-        match (self.stick_swipe_pos, deflected) {
-            (None, false) => (),
-            (None, true) => {
-                events.push((SwipeEvent::Down, centre));
-                self.stick_swipe_pos = Some(centre);
+        match self.stick_swipe_pos {
+            None if !idle => {
+                events.push((SwipeEvent::Down, origin));
+                self.stick_swipe_pos = Some(origin);
             }
-            (Some(pos), false) => {
+            None => (),
+            Some(pos) if idle => {
                 events.push((SwipeEvent::Up, pos));
                 self.stick_swipe_pos = None;
             }
-            (Some((x, y)), true) => {
-                let (nx, ny) = (x + sx * speed * dt, y + sy * speed * dt);
+            Some((x, y)) => {
+                let (nx, ny) = (x + dx, y + dy);
                 if nx < margin || nx > w - margin || ny < margin || ny > h - margin {
                     events.push((SwipeEvent::Up, (x, y)));
-                    events.push((SwipeEvent::Down, centre));
-                    self.stick_swipe_pos = Some(centre);
+                    events.push((SwipeEvent::Down, origin));
+                    self.stick_swipe_pos = Some(origin);
                 } else if (nx, ny) != (x, y) {
                     events.push((SwipeEvent::Move, (nx, ny)));
                     self.stick_swipe_pos = Some((nx, ny));
@@ -1098,6 +1150,30 @@ impl Window {
             }
         }
         events
+    }
+
+    /// `--mouse-to-swipe` (private fork): accumulate mouse movement for
+    /// [Self::update_stick_swipe] and hide the cursor while it is over the
+    /// app's picture.
+    fn handle_mouse_swipe_motion(&mut self, x: i32, y: i32, xrel: i32, yrel: i32, buttons: bool) {
+        let (vx, vy, vw, vh) = self.viewport();
+        let inside = x >= vx as i32
+            && y >= vy as i32
+            && x < (vx + vw) as i32
+            && y < (vy + vh) as i32;
+        if inside != self.cursor_hidden {
+            self._sdl_ctx.mouse().show_cursor(!inside);
+            self.cursor_hidden = inside;
+        }
+        if !inside || buttons {
+            return;
+        }
+        // Window pixels to screen points.
+        let (app_w, _) = self.size_unrotated_unscaled();
+        let points_per_pixel = app_w as f32 / vw as f32;
+        let sensitivity = self.mouse_swipe_sensitivity;
+        self.mouse_swipe_delta.0 += xrel as f32 * points_per_pixel * sensitivity;
+        self.mouse_swipe_delta.1 += yrel as f32 * points_per_pixel * sensitivity;
     }
 
     /// Update the virtual cursor's position, click state and visibility, then
@@ -1368,7 +1444,9 @@ impl Window {
                 set_sdl2_orientation(new_orientation);
                 rotate_fullscreen_size(new_orientation, self.window.size())
             } else {
-                size_for_orientation(self.device_family, new_orientation, self.scale_hack)
+                let (w, h) =
+                    size_for_orientation(self.device_family, new_orientation, self.scale_hack);
+                (w * self.window_scale, h * self.window_scale)
             };
 
             // macOS quirk: when resizing the window, the new framebuffer's size
@@ -1446,10 +1524,23 @@ impl Window {
         let (app_width, app_height) =
             size_for_orientation(self.device_family, self.device_orientation, self.scale_hack);
         if !self.fullscreen && !Self::rotatable_fullscreen() {
-            return (0, 0, app_width, app_height);
+            return (
+                0,
+                0,
+                app_width * self.window_scale,
+                app_height * self.window_scale,
+            );
         }
 
         let (screen_width, screen_height) = self.window.drawable_size();
+
+        if self.integer_scaling {
+            let factor = (screen_width / app_width).min(screen_height / app_height).max(1);
+            let (scaled_width, scaled_height) = (app_width * factor, app_height * factor);
+            let x = screen_width.saturating_sub(scaled_width) / 2;
+            let y = screen_height.saturating_sub(scaled_height) / 2;
+            return (x, y, scaled_width, scaled_height);
+        }
 
         let app_aspect = app_width as f32 / app_height as f32;
         let screen_aspect = screen_width as f32 / screen_height as f32;
