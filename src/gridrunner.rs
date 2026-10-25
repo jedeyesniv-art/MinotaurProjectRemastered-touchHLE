@@ -131,6 +131,14 @@ const FIVE_A_DAY_EXIT_TAP: (f32, f32) = (384.0, 639.0);
 const FIVE_A_DAY_HISCORE: (u32, u32, u32, u32) = (160, 740, 400, 30);
 const FIVE_A_DAY_TOUCH_TO_PLAY: (u32, u32, u32, u32) = (214, 838, 346, 30);
 
+/// Super Ox Wars: the pause screen's grey EXIT GAME sign and where to tap it,
+/// the menu's grey START button, and the attract logo's blue and red halves.
+const SOW_EXIT_SIGN: (u32, u32, u32, u32) = (285, 590, 195, 100);
+const SOW_EXIT_TAP: (f32, f32) = (382.0, 641.0);
+const SOW_START_BUTTON: (u32, u32, u32, u32) = (200, 700, 370, 95);
+const SOW_LOGO_BLUE: (u32, u32, u32, u32) = (275, 240, 80, 60);
+const SOW_LOGO_RED: (u32, u32, u32, u32) = (400, 240, 75, 60);
+
 /// Private fork: the controller buttons that act on what's on screen.
 #[derive(Copy, Clone, Debug)]
 pub enum ScreenButton {
@@ -168,6 +176,9 @@ pub fn screen_button_action(env: &mut Environment, which: ScreenButton) -> Scree
     }
     if env.bundle.bundle_identifier() == "uk.co.llamasoft.tp" {
         return five_a_day_exit_button_action(env);
+    }
+    if env.bundle.bundle_identifier() == "uk.co.llamasoft.sf" {
+        return super_ox_wars_exit_button_action(env);
     }
     gridrunner_exit_button_action(env)
 }
@@ -212,6 +223,36 @@ fn five_a_day_exit_button_action(env: &mut Environment) -> ScreenAction {
     if exit.is_some_and(|f| f > 0.3) {
         ScreenAction::Tap(FIVE_A_DAY_EXIT_TAP)
     } else if hiscore.is_some_and(|f| f > 0.06) && touch.is_some_and(|f| f > 0.08) {
+        ScreenAction::Quit
+    } else {
+        ScreenAction::Nothing
+    }
+}
+
+/// Super Ox Wars: the EXIT GAME sign (grey, measured 0.28 on the pause screen
+/// and at most 0.01 elsewhere) means pause, so tap it. The START button (grey,
+/// 0.45 on the menu, at most 0.01 elsewhere) or the attract logo (blue 0.58
+/// and red 0.77, at most 0.05 elsewhere) means quit. Anything else, e.g.
+/// playing or the other attract pages, does nothing.
+fn super_ox_wars_exit_button_action(env: &mut Environment) -> ScreenAction {
+    use crate::frameworks::opengles::eagl::read_screen_pixels;
+
+    let grey = |r: u8, g: u8, b: u8| r.abs_diff(g) < 14 && g.abs_diff(b) < 14 && (70..=170).contains(&r);
+    let blue = |r: u8, g: u8, b: u8| b > 150 && r < 90 && g < 120;
+    let red = |r: u8, g: u8, b: u8| r > 170 && g < 80 && b < 80;
+    let exit = read_screen_pixels(env, SOW_EXIT_SIGN).map(|p| fraction(&p, grey));
+    let start = read_screen_pixels(env, SOW_START_BUTTON).map(|p| fraction(&p, grey));
+    let logo_blue = read_screen_pixels(env, SOW_LOGO_BLUE).map(|p| fraction(&p, blue));
+    let logo_red = read_screen_pixels(env, SOW_LOGO_RED).map(|p| fraction(&p, red));
+    log!(
+        "Exit button: EXIT GAME {:?}, START {:?}, logo blue {:?} red {:?}",
+        exit, start, logo_blue, logo_red
+    );
+    if exit.is_some_and(|f| f > 0.15) {
+        ScreenAction::Tap(SOW_EXIT_TAP)
+    } else if start.is_some_and(|f| f > 0.25)
+        || (logo_blue.is_some_and(|f| f > 0.3) && logo_red.is_some_and(|f| f > 0.3))
+    {
         ScreenAction::Quit
     } else {
         ScreenAction::Nothing
