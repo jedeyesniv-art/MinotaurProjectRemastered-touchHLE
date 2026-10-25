@@ -10,4 +10,4 @@
 uk.co.llamasoft.gridrunner: --device-family=ipad --disable-analog-stick-tilt-controls --stick-to-icade --icade-analog=0.1,1.35 --mouse-to-swipe=1 --swipe-origin=384,620 --button-to-touch=A,384,800 --button-to-touch=Y,384,432 --button-to-touch=DPadLeft,58,432 --button-to-touch=DPadRight,710,432 --button-to-touch=Start,384,307 --button-to-rotate=Back --exit-button=B --landscape-button-to-touch=Start,512,285 --deadzone=0.18 --dpi-aware --nearest-present --nearest-textures --smooth-render-textures --sharp-scaling --bezel=gridrunner_bezel.png --move-to-margin=60,6,190,62 --move-to-margin=250,6,295,62 --move-to-margin=600,6,168,62 --fullscreen
 
 # Five A Day (testing)
-uk.co.llamasoft.tp: --device-family=ipad --dpi-aware --sharp-scaling --stick-to-icade --deadzone=0.18 --button-to-touch=A,384,512 --button-to-touch=Start,384,150 --exit-button=B
+uk.co.llamasoft.tp: --device-family=ipad --dpi-aware --sharp-scaling --stick-to-icade --deadzone=0.18 --button-to-touch=A,384,512 --button-to-touch=Start,384,150 --exit-button=B --bezel=fiveaday_bezel.png
