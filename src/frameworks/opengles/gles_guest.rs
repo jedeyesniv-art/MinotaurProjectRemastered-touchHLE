@@ -570,6 +570,7 @@ fn glBufferData(
     data: ConstPtr<GLvoid>,
     usage: GLenum,
 ) {
+    crate::perf_log::count(|c| c.buffer_upload_bytes += size as u64);
     with_ctx_and_mem(env, |gles, mem| unsafe {
         let data = if data.is_null() {
             std::ptr::null()
@@ -588,6 +589,7 @@ fn glBufferSubData(
     size: GuestGLsizeiptr,
     data: ConstPtr<GLvoid>,
 ) {
+    crate::perf_log::count(|c| c.buffer_upload_bytes += size as u64);
     with_ctx_and_mem(env, |gles, mem| unsafe {
         let data = if data.is_null() {
             std::ptr::null()
@@ -730,7 +732,14 @@ fn glVertexPointer(
 
 // Drawing
 fn glDrawArrays(env: &mut Environment, mode: GLenum, first: GLint, count: GLsizei) {
+    crate::perf_log::count(|c| {
+        c.draws += 1;
+        c.vertices += count as u64;
+    });
     with_ctx_and_mem(env, |gles, _mem| unsafe {
+        if crate::perf_log::enabled() {
+            crate::perf_log::app_drawing();
+        }
         let fog_state_backup = clamp_fog_state_values(gles);
         gles.DrawArrays(mode, first, count);
         restore_fog_state_values(gles, fog_state_backup);
@@ -743,7 +752,14 @@ fn glDrawElements(
     type_: GLenum,
     indices: ConstVoidPtr,
 ) {
+    crate::perf_log::count(|c| {
+        c.draws += 1;
+        c.vertices += count as u64;
+    });
     with_ctx_and_mem(env, |gles, mem| unsafe {
+        if crate::perf_log::enabled() {
+            crate::perf_log::app_drawing();
+        }
         let fog_state_backup = clamp_fog_state_values(gles);
         let indices = translate_pointer_or_offset_to_host(
             gles,
@@ -758,7 +774,13 @@ fn glDrawElements(
 
 // Clearing
 fn glClear(env: &mut Environment, mask: GLbitfield) {
-    with_ctx_and_mem(env, |gles, _mem| unsafe { gles.Clear(mask) });
+    crate::perf_log::count(|c| c.clears += 1);
+    with_ctx_and_mem(env, |gles, _mem| unsafe {
+        if crate::perf_log::enabled() {
+            crate::perf_log::app_drawing();
+        }
+        gles.Clear(mask)
+    });
 }
 fn glClearColor(
     env: &mut Environment,
@@ -934,6 +956,7 @@ fn glReadPixels(
     type_: GLenum,
     pixels: MutVoidPtr,
 ) {
+    crate::perf_log::count(|c| c.read_pixels += 1);
     with_ctx_and_mem(env, |gles, mem| {
         let pixels = {
             let pixel_count: GuestUSize = width.checked_mul(height).unwrap().try_into().unwrap();
@@ -1165,6 +1188,7 @@ fn glTexImage2D(
         } else {
             let pixel_count: GuestUSize = width.checked_mul(height).unwrap().try_into().unwrap();
             let size = image_size_estimate(pixel_count, format, type_);
+            crate::perf_log::count(|c| c.texture_upload_bytes += size as u64);
             mem.ptr_at(pixels.cast::<u8>(), size).cast::<GLvoid>()
         };
         gles.TexImage2D(
@@ -1195,6 +1219,7 @@ fn glTexSubImage2D(
     with_ctx_and_mem(env, |gles, mem| unsafe {
         let pixel_count: GuestUSize = width.checked_mul(height).unwrap().try_into().unwrap();
         let size = image_size_estimate(pixel_count, format, type_);
+        crate::perf_log::count(|c| c.texture_upload_bytes += size as u64);
         let pixels = if pixels.is_null() {
             std::ptr::null()
         } else {
@@ -1356,6 +1381,7 @@ fn glIsRenderbufferOES(env: &mut Environment, renderbuffer: GLuint) -> GLboolean
     })
 }
 fn glBindFramebufferOES(env: &mut Environment, target: GLenum, framebuffer: GLuint) {
+    crate::perf_log::count(|c| c.framebuffer_binds += 1);
     with_ctx_and_mem(env, |gles, _mem| unsafe {
         gles.BindFramebufferOES(target, framebuffer)
     })
@@ -1880,6 +1906,7 @@ fn glValidateProgram(env: &mut Environment, program: GLuint) {
     with_ctx_and_mem(env, |gles, _mem| unsafe { gles.ValidateProgram(program) })
 }
 fn glUseProgram(env: &mut Environment, program: GLuint) {
+    crate::perf_log::count(|c| c.program_binds += 1);
     with_ctx_and_mem(env, |gles, _mem| unsafe { gles.UseProgram(program) })
 }
 fn glGetProgramiv(env: &mut Environment, program: GLuint, pname: GLenum, params: MutPtr<GLint>) {

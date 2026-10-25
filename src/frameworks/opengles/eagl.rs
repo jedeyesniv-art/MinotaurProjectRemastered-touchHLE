@@ -642,6 +642,10 @@ unsafe fn present_renderbuffer(env: &mut Environment, crop: [f32; 4]) {
 
     let mut gles_boxed = gles_ctx.make_current(env.window.as_mut().unwrap());
     let gles = gles_boxed.as_mut();
+    let present_started = Instant::now();
+    if crate::perf_log::enabled() {
+        crate::perf_log::present_begin();
+    }
 
     // We can't directly copy the content of the renderbuffer to the default
     // framebuffer (the window), but if we attach it to a framebuffer object, we
@@ -803,6 +807,9 @@ unsafe fn present_renderbuffer(env: &mut Environment, crop: [f32; 4]) {
         (src_w as u32, src_h as u32),
         sharp_scaling.then_some(&mut sharp_scaler),
     );
+    if crate::perf_log::enabled() {
+        crate::perf_log::present_end(present_started.elapsed());
+    }
 
     // Clean up the texture
     gles.DeleteTextures(1, &texture);

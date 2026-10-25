@@ -47,6 +47,13 @@ View options:
         textures. Can make pixel art sharper, but may make effects that rely
         on smooth filtering (glows, blurs) look blocky.
 
+    --perf-log=FILE
+        (Private fork.) Once a second, write a line to FILE (a CSV file,
+        relative to the touchHLE folder) with the frame rate, how much drawing
+        and uploading the app asked for per frame, and how long the GPU spent
+        on the app's drawing and on touchHLE's presenting. Press F9 to mark a
+        moment, e.g. --perf-log=touchHLE_perf.csv.
+
     --exit-button=BUTTON
         (Private Gridrunner fork.) In portrait, this button taps Exit on the
         pause screen and quits touchHLE from the main menu (the START! screen).

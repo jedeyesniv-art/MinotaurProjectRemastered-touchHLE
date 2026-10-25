@@ -969,6 +969,15 @@ impl Window {
                     echo!("F12 pressed, EnterDebugger event queued.");
                     Event::EnterDebugger
                 }
+                // Private fork: F9 marks a moment in the --perf-log.
+                E::KeyDown {
+                    keycode: Some(sdl2::keyboard::Keycode::F9),
+                    repeat: false,
+                    ..
+                } => {
+                    crate::perf_log::mark();
+                    continue;
+                }
                 // Private fork: Esc does the same as the --exit-button.
                 E::KeyDown {
                     keycode: Some(sdl2::keyboard::Keycode::Escape),

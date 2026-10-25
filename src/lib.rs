@@ -50,6 +50,7 @@ mod mem;
 mod objc;
 mod options;
 mod paths;
+mod perf_log;
 mod stack;
 mod window;
 
@@ -377,6 +378,10 @@ pub fn main<T: Iterator<Item = String>>(mut args: T) -> Result<(), String> {
     for option_arg in option_args {
         let parse_result = options.parse_argument(&option_arg);
         assert!(parse_result == Ok(true));
+    }
+
+    if let Some(path) = &options.perf_log {
+        perf_log::start(&paths::user_data_base_path().join(path));
     }
 
     let res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {

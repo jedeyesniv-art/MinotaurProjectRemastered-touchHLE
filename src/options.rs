@@ -83,6 +83,8 @@ pub struct Options {
     pub sharp_scaling: bool,
     /// Private fork: Gridrunner's exit/quit button.
     pub exit_button: Option<Button>,
+    /// Private fork: see `--perf-log` in OPTIONS_HELP.txt.
+    pub perf_log: Option<String>,
     pub device_family: Option<DeviceFamily>,
     pub initial_orientation: DeviceOrientation,
     pub scale_hack: NonZeroU32,
@@ -163,6 +165,7 @@ impl Default for Options {
             smooth_render_textures: false,
             sharp_scaling: false,
             exit_button: None,
+            perf_log: None,
             device_family: None,
             initial_orientation: DeviceOrientation::Portrait,
             scale_hack: NonZeroU32::new(1).unwrap(),
@@ -251,6 +254,8 @@ impl Options {
             self.nearest_present = true;
         } else if arg == "--nearest-textures" {
             self.nearest_textures = true;
+        } else if let Some(path) = arg.strip_prefix("--perf-log=") {
+            self.perf_log = Some(path.to_string());
         } else if let Some(value) = arg.strip_prefix("--exit-button=") {
             self.exit_button = Some(parse_button(value, "--exit-button=")?);
         } else if arg == "--sharp-scaling" {
