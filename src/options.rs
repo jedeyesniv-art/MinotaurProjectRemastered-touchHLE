@@ -85,6 +85,8 @@ pub struct Options {
     pub exit_button: Option<Button>,
     /// Private fork: see `--perf-log` in OPTIONS_HELP.txt.
     pub perf_log: Option<String>,
+    /// Private fork: see `--screenshot-every=` in OPTIONS_HELP.txt.
+    pub screenshot_every: Option<f64>,
     pub device_family: Option<DeviceFamily>,
     pub initial_orientation: DeviceOrientation,
     pub scale_hack: NonZeroU32,
@@ -166,6 +168,7 @@ impl Default for Options {
             sharp_scaling: false,
             exit_button: None,
             perf_log: None,
+            screenshot_every: None,
             device_family: None,
             initial_orientation: DeviceOrientation::Portrait,
             scale_hack: NonZeroU32::new(1).unwrap(),
@@ -256,6 +259,14 @@ impl Options {
             self.nearest_textures = true;
         } else if let Some(path) = arg.strip_prefix("--perf-log=") {
             self.perf_log = Some(path.to_string());
+        } else if let Some(value) = arg.strip_prefix("--screenshot-every=") {
+            self.screenshot_every = Some(
+                value
+                    .parse()
+                    .ok()
+                    .filter(|&s: &f64| s > 0.0)
+                    .ok_or_else(|| "--screenshot-every= requires a positive number of seconds".to_string())?,
+            );
         } else if let Some(value) = arg.strip_prefix("--exit-button=") {
             self.exit_button = Some(parse_button(value, "--exit-button=")?);
         } else if arg == "--sharp-scaling" {

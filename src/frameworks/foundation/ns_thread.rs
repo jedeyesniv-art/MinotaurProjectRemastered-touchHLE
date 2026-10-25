@@ -27,6 +27,8 @@ use std::time::Duration;
 pub struct State {
     is_multi_threaded: bool,
     ns_threads: HashMap<pthread_t, id>,
+    /// The main thread's `NSThread`, once something has asked for it.
+    main_ns_thread: Option<id>,
 }
 impl State {
     fn get(env: &mut Environment) -> &mut Self {
@@ -95,7 +97,27 @@ pub const CLASSES: ClassExports = objc_classes! {
         let ns_thread: id = msg![env; ns_thread init];
         State::get(env).ns_threads.insert(pthread, ns_thread);
     }
-    *State::get(env).ns_threads.get(&pthread).unwrap()
+    let ns_thread = *State::get(env).ns_threads.get(&pthread).unwrap();
+    if env.current_thread == 0 {
+        State::get(env).main_ns_thread = Some(ns_thread);
+    }
+    ns_thread
+}
+
++ (id)mainThread {
+    if env.current_thread == 0 {
+        return msg![env; this currentThread];
+    }
+    if let Some(ns_thread) = State::get(env).main_ns_thread {
+        return ns_thread;
+    }
+    // Asked from another thread before the main thread had an NSThread:
+    // make one now; the main thread's currentThread may then differ, but
+    // isMainThread on either still answers correctly.
+    let ns_thread: id = msg_class![env; NSThread alloc];
+    let ns_thread: id = msg![env; ns_thread init];
+    State::get(env).main_ns_thread = Some(ns_thread);
+    ns_thread
 }
 
 + (id)callStackReturnAddresses {
@@ -121,6 +143,14 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 + (bool)isMainThread {
     env.current_thread == 0
+}
+
+- (bool)isMainThread {
+    State::get(env).main_ns_thread == Some(this)
+        || (env.current_thread == 0 && {
+            let current: id = msg_class![env; NSThread currentThread];
+            current == this
+        })
 }
 
 - (id)initWithTarget:(id)target

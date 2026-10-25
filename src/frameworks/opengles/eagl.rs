@@ -295,6 +295,10 @@ pub const CLASSES: ClassExports = objc_classes! {
             .count_frame(format_args!("EAGLContext {this:?}"));
     }
 
+    if let Some(every) = env.options.screenshot_every {
+        save_screenshot_if_due(env, every);
+    }
+
     let (fullscreen_layer, crop) = find_fullscreen_eagl_layer_and_crop(env);
 
     // Unclear from documentation if this method requires the context to be
@@ -907,6 +911,57 @@ unsafe fn present_renderbuffer(env: &mut Environment, crop: [f32; 4]) {
 /// top-left origin) of the last frame the current thread's context drew to
 /// its layer, as RGBA rows bottom row first. Assumes the layer's top-left
 /// corner is the screen's. Returns [None] if there is no such frame.
+/// Private fork: `--screenshot-every=`. Saves the whole screen as a 32-bit BMP
+/// (bottom-up rows, as OpenGL reads them).
+fn save_screenshot_if_due(env: &mut Environment, every: f64) {
+    use std::sync::Mutex;
+    static NEXT: Mutex<Option<(Instant, u32)>> = Mutex::new(None);
+    let now = Instant::now();
+    let mut next = NEXT.lock().unwrap();
+    let (due, count) = *next.get_or_insert((now + Duration::from_secs_f64(every), 0));
+    if now < due {
+        return;
+    }
+    *next = Some((now + Duration::from_secs_f64(every), count + 1));
+    drop(next);
+    let (w, h) = env.window().size_unrotated_unscaled();
+    let Some(pixels) = read_screen_pixels(env, (0, 0, w, h)) else {
+        return;
+    };
+    // read_screen_pixels scales to the renderbuffer's size.
+    let rows = pixels.len() / 4;
+    let scale = ((rows as f64 / (w as f64 * h as f64)).sqrt()).max(1e-6);
+    let (pw, ph) = ((w as f64 * scale).round() as u32, (h as f64 * scale).round() as u32);
+    if (pw * ph * 4) as usize != pixels.len() {
+        log!("screenshot: unexpected size {} for {}x{}", pixels.len(), pw, ph);
+        return;
+    }
+    let mut bmp = Vec::with_capacity(54 + pixels.len());
+    let file_size = 54 + pixels.len() as u32;
+    bmp.extend_from_slice(b"BM");
+    bmp.extend_from_slice(&file_size.to_le_bytes());
+    bmp.extend_from_slice(&0u32.to_le_bytes());
+    bmp.extend_from_slice(&54u32.to_le_bytes());
+    bmp.extend_from_slice(&40u32.to_le_bytes());
+    bmp.extend_from_slice(&(pw as i32).to_le_bytes());
+    bmp.extend_from_slice(&(ph as i32).to_le_bytes());
+    bmp.extend_from_slice(&1u16.to_le_bytes());
+    bmp.extend_from_slice(&32u16.to_le_bytes());
+    bmp.extend_from_slice(&[0u8; 24]);
+    for p in pixels.chunks_exact(4) {
+        bmp.extend_from_slice(&[p[2], p[1], p[0], 255]);
+    }
+    let name = format!("touchHLE_screenshot_{}.bmp", count + 1);
+    match std::fs::write(&name, bmp) {
+        Ok(()) => {
+            log!("screenshot: saved {} ({}x{})", name, pw, ph);
+        }
+        Err(e) => {
+            log!("screenshot: couldn't save {}: {}", name, e);
+        }
+    }
+}
+
 pub fn read_screen_pixels(env: &mut Environment, rect: (u32, u32, u32, u32)) -> Option<Vec<u8>> {
     let ctx = (*env
         .framework_state

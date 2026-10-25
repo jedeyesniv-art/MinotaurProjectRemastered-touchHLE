@@ -54,6 +54,11 @@ View options:
         on the app's drawing and on touchHLE's presenting. Press F9 to mark a
         moment, e.g. --perf-log=touchHLE_perf.csv.
 
+    --screenshot-every=SECONDS
+        (Private fork.) Every SECONDS seconds, save the frame the app is
+        presenting as touchHLE_screenshot_N.bmp in the touchHLE folder (for
+        looking at a new app without being at the screen).
+
     --exit-button=BUTTON
         (Private Gridrunner fork.) In portrait, this button taps Exit on the
         pause screen and quits touchHLE from the main menu (the START! screen).
