@@ -150,15 +150,16 @@ pub fn handle_events(env: &mut Environment) -> Option<Instant> {
                 }
             }
             Event::ExitButton(down) => {
-                use crate::gridrunner::{exit_button_action, ExitButtonAction, EXIT_TAP};
+                use crate::gridrunner::{exit_button_action, ExitButtonAction};
                 use crate::window::FingerId;
                 let finger = FingerId::ButtonToTouch(env.options.exit_button.unwrap());
-                let touch = std::collections::HashMap::from([(finger, EXIT_TAP)]);
                 thread_local! {
-                    static TOUCHING: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+                    /// Where the exit button is touching, while it is.
+                    static TOUCHING: std::cell::Cell<Option<(f32, f32)>> = const { std::cell::Cell::new(None) };
                 }
                 if !down {
-                    if TOUCHING.replace(false) {
+                    if let Some(at) = TOUCHING.take() {
+                        let touch = std::collections::HashMap::from([(finger, at)]);
                         ui_touch::handle_event(env, Event::TouchesUp(touch));
                     }
                     continue;
@@ -168,9 +169,10 @@ pub fn handle_events(env: &mut Environment) -> Option<Instant> {
                         echo!("Exit button pressed on the main menu, exiting.");
                         ui_application::exit(env);
                     }
-                    ExitButtonAction::TapExit => {
+                    ExitButtonAction::TapExit(at) => {
                         log!("Exit button pressed on the pause screen, tapping Exit.");
-                        TOUCHING.set(true);
+                        TOUCHING.set(Some(at));
+                        let touch = std::collections::HashMap::from([(finger, at)]);
                         ui_touch::handle_event(env, Event::TouchesDown(touch));
                     }
                     ExitButtonAction::Nothing => (),

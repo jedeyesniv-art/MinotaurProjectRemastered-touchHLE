@@ -121,13 +121,21 @@ fn icade_analog(env: &mut Environment, game: MutVoidPtr) {
 /// (portrait screen points), and where to tap Exit.
 const START_BUTTON: (u32, u32, u32, u32) = (200, 780, 370, 100);
 const EXIT_SIGN: (u32, u32, u32, u32) = (290, 582, 188, 100);
-pub const EXIT_TAP: (f32, f32) = (384.0, 633.0);
+const EXIT_TAP: (f32, f32) = (384.0, 633.0);
+
+/// Five A Day (same engine): its pause screen's Exit sign and where to tap
+/// it, and the title screen's purple LOCAL HISCORE and lavender TOUCH TO PLAY
+/// lines.
+const FIVE_A_DAY_EXIT_SIGN: (u32, u32, u32, u32) = (290, 590, 188, 100);
+const FIVE_A_DAY_EXIT_TAP: (f32, f32) = (384.0, 639.0);
+const FIVE_A_DAY_HISCORE: (u32, u32, u32, u32) = (160, 740, 400, 30);
+const FIVE_A_DAY_TOUCH_TO_PLAY: (u32, u32, u32, u32) = (214, 838, 346, 30);
 
 pub enum ExitButtonAction {
     /// The main menu is showing: quit the app.
     Quit,
-    /// The pause screen is showing: tap Exit.
-    TapExit,
+    /// The pause screen is showing: tap Exit here.
+    TapExit((f32, f32)),
     /// Anything else, e.g. playing: do nothing.
     Nothing,
 }
@@ -145,6 +153,9 @@ pub fn exit_button_action(env: &mut Environment) -> ExitButtonAction {
     if env.window().current_rotation() != DeviceOrientation::Portrait {
         return ExitButtonAction::Nothing;
     }
+    if env.bundle.bundle_identifier() == "uk.co.llamasoft.tp" {
+        return five_a_day_exit_button_action(env);
+    }
     // The START! button is solid blue behind white letters.
     let blue = |r: u8, g: u8, b: u8| b > 200 && r < 60 && g < 60;
     if read_screen_pixels(env, START_BUTTON).is_some_and(|p| fraction(&p, blue) > 0.4) {
@@ -155,7 +166,35 @@ pub fn exit_button_action(env: &mut Environment) -> ExitButtonAction {
         r.abs_diff(g) < 12 && g.abs_diff(b) < 12 && (60..120).contains(&r)
     };
     if read_screen_pixels(env, EXIT_SIGN).is_some_and(|p| fraction(&p, grey) > 0.35) {
-        return ExitButtonAction::TapExit;
+        return ExitButtonAction::TapExit(EXIT_TAP);
     }
     ExitButtonAction::Nothing
+}
+
+/// Five A Day: the Exit sign (blue-grey, measured 0.48 on the pause screen
+/// and at most 0.08 elsewhere) means pause, so tap Exit. Both title lines
+/// (measured 0.13-0.19 and 0.20-0.22 there, 0 on the other attract pages; the
+/// pause screen's TOUCH button matches the lavender only) mean the title
+/// screen, so quit. Anything else, e.g. playing, does nothing.
+fn five_a_day_exit_button_action(env: &mut Environment) -> ExitButtonAction {
+    use crate::frameworks::opengles::eagl::read_screen_pixels;
+
+    let exit_grey = |r: u8, g: u8, b: u8| {
+        r.abs_diff(g) < 14 && (12..=45).contains(&(b as i32 - r as i32)) && (65..=130).contains(&r)
+    };
+    let purple = |r: u8, g: u8, b: u8| (95..=170).contains(&r) && g < 80 && b > 190;
+    let lavender = |r: u8, g: u8, b: u8| {
+        (100..=175).contains(&r) && (110..=175).contains(&g) && b > 190 && r.abs_diff(g) < 30
+    };
+    let exit = read_screen_pixels(env, FIVE_A_DAY_EXIT_SIGN).map(|p| fraction(&p, exit_grey));
+    let hiscore = read_screen_pixels(env, FIVE_A_DAY_HISCORE).map(|p| fraction(&p, purple));
+    let touch = read_screen_pixels(env, FIVE_A_DAY_TOUCH_TO_PLAY).map(|p| fraction(&p, lavender));
+    log!("Exit button: Exit sign {:?}, LOCAL HISCORE {:?}, TOUCH TO PLAY {:?}", exit, hiscore, touch);
+    if exit.is_some_and(|f| f > 0.3) {
+        ExitButtonAction::TapExit(FIVE_A_DAY_EXIT_TAP)
+    } else if hiscore.is_some_and(|f| f > 0.06) && touch.is_some_and(|f| f > 0.08) {
+        ExitButtonAction::Quit
+    } else {
+        ExitButtonAction::Nothing
+    }
 }

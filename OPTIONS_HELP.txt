@@ -54,6 +54,12 @@ View options:
         on the app's drawing and on touchHLE's presenting. Press F9 to mark a
         moment, e.g. --perf-log=touchHLE_perf.csv.
 
+    --hide-cursor=SECONDS
+        (Private fork.) Hide the mouse pointer over the window once the mouse
+        has been still for this long (default 2; 0 = never). It comes back as
+        soon as the mouse moves. F11 or Alt+Enter switches between fullscreen
+        and a window.
+
     --screenshot-every=SECONDS
         (Private fork.) Every SECONDS seconds, save the frame the app is
         presenting as touchHLE_screenshot_N.bmp in the touchHLE folder (for

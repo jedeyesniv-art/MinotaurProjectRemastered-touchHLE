@@ -87,6 +87,8 @@ pub struct Options {
     pub perf_log: Option<String>,
     /// Private fork: see `--screenshot-every=` in OPTIONS_HELP.txt.
     pub screenshot_every: Option<f64>,
+    /// Private fork: see `--hide-cursor=` in OPTIONS_HELP.txt (0 = never).
+    pub hide_cursor: f64,
     pub device_family: Option<DeviceFamily>,
     pub initial_orientation: DeviceOrientation,
     pub scale_hack: NonZeroU32,
@@ -169,6 +171,7 @@ impl Default for Options {
             exit_button: None,
             perf_log: None,
             screenshot_every: None,
+            hide_cursor: 2.0,
             device_family: None,
             initial_orientation: DeviceOrientation::Portrait,
             scale_hack: NonZeroU32::new(1).unwrap(),
@@ -259,6 +262,12 @@ impl Options {
             self.nearest_textures = true;
         } else if let Some(path) = arg.strip_prefix("--perf-log=") {
             self.perf_log = Some(path.to_string());
+        } else if let Some(value) = arg.strip_prefix("--hide-cursor=") {
+            self.hide_cursor = value
+                .parse()
+                .ok()
+                .filter(|&s: &f64| s >= 0.0)
+                .ok_or_else(|| "--hide-cursor= requires a number of seconds".to_string())?;
         } else if let Some(value) = arg.strip_prefix("--screenshot-every=") {
             self.screenshot_every = Some(
                 value

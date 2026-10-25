@@ -229,6 +229,9 @@ pub struct Window {
     event_pump: sdl2::EventPump,
     event_queue: VecDeque<Event>,
     last_polled: Instant,
+    /// Private fork: --hide-cursor.
+    last_mouse_motion: Instant,
+    idle_cursor_hidden: bool,
     /// Separate queue for extremely high-priority events (e.g. app about to
     /// terminate).
     high_priority_event: Option<Event>,
@@ -417,6 +420,8 @@ impl Window {
             event_pump,
             event_queue: VecDeque::new(),
             last_polled: Instant::now() - Duration::from_secs(1),
+            last_mouse_motion: Instant::now(),
+            idle_cursor_hidden: false,
             high_priority_event: None,
             enable_event_polling: true,
             #[cfg(target_os = "macos")]
@@ -524,6 +529,17 @@ impl Window {
             return;
         }
         self.last_polled = now;
+
+        // Private fork: hide the pointer once the mouse has been still a while
+        // (--mouse-to-swipe hides it itself).
+        if options.hide_cursor > 0.0
+            && options.mouse_to_swipe.is_none()
+            && !self.idle_cursor_hidden
+            && now.duration_since(self.last_mouse_motion).as_secs_f64() > options.hide_cursor
+        {
+            self._sdl_ctx.mouse().show_cursor(false);
+            self.idle_cursor_hidden = true;
+        }
 
         fn transform_input_coords(
             window: &Window,
@@ -633,6 +649,33 @@ impl Window {
                             coords,
                         )])));
                     }
+                }
+            }
+
+            // Private fork: the mouse moving brings the pointer back.
+            if let E::MouseMotion { .. } | E::MouseButtonDown { .. } = event {
+                self.last_mouse_motion = Instant::now();
+                if self.idle_cursor_hidden {
+                    self._sdl_ctx.mouse().show_cursor(true);
+                    self.idle_cursor_hidden = false;
+                }
+            }
+
+            // Private fork: F11 or Alt+Enter switches between fullscreen and a
+            // window.
+            if let E::KeyDown {
+                keycode: Some(key),
+                keymod,
+                repeat: false,
+                ..
+            } = event
+            {
+                let alt = keymod.intersects(sdl2::keyboard::Mod::LALTMOD | sdl2::keyboard::Mod::RALTMOD);
+                if key == sdl2::keyboard::Keycode::F11
+                    || (key == sdl2::keyboard::Keycode::Return && alt)
+                {
+                    self.toggle_fullscreen(options);
+                    continue;
                 }
             }
 
@@ -1677,6 +1720,37 @@ impl Window {
     /// On a PC or laptop, this will make the window be rotated so the app
     /// content appears upright. On a mobile device, this might do something
     /// else, because the user can physically rotate the screen.
+    /// Private fork: F11 / Alt+Enter. Fullscreen is a borderless window
+    /// covering the screen; the window is the app's own size.
+    fn toggle_fullscreen(&mut self, options: &Options) {
+        if Self::rotatable_fullscreen() {
+            return;
+        }
+        if self.fullscreen {
+            let _ = self.window.set_fullscreen(sdl2::video::FullscreenType::Off);
+            let (w, h) =
+                size_for_orientation(self.device_family, self.device_orientation, self.scale_hack);
+            let _ = self.window.set_size(w * self.window_scale, h * self.window_scale);
+            self.window.set_position(
+                sdl2::video::WindowPos::Centered,
+                sdl2::video::WindowPos::Centered,
+            );
+            if self.mouse_captured {
+                self._sdl_ctx.mouse().set_relative_mouse_mode(false);
+                self.mouse_captured = false;
+            }
+            self.fullscreen = false;
+        } else {
+            let _ = self.window.set_fullscreen(sdl2::video::FullscreenType::Desktop);
+            if options.mouse_to_swipe.is_some() {
+                self._sdl_ctx.mouse().set_relative_mouse_mode(true);
+                self.mouse_captured = true;
+            }
+            self.fullscreen = true;
+        }
+        log!("Display: {}", if self.fullscreen { "fullscreen" } else { "windowed" });
+    }
+
     pub fn rotate_device(&mut self, new_orientation: DeviceOrientation) {
         assert!(self.on_main_stack);
         if new_orientation == self.device_orientation {
