@@ -60,6 +60,21 @@ View options:
         soon as the mouse moves. F11 or Alt+Enter switches between fullscreen
         and a window.
 
+    --deflex-pad
+        (Private fork, Deflex.) Controller support that follows what's on
+        screen: A starts from the title; on the level select the left stick
+        moves a pointer, A drags with it and X presses PLAY; in play X, LB, LT,
+        L3, d-pad left or stick left hold the left paddle button and B, RB,
+        RT, R3, d-pad right or stick right the right one, and Start pauses;
+        when paused Start resumes, X retries and B quits; after a level X
+        retries, B quits and A goes to the next; B (or Esc) on the title or
+        level select quits touchHLE.
+
+    --retry-button=BUTTON
+        (Private fork.) On the pause screen of a game with a retry button
+        (Deflex), this button taps it. It does nothing anywhere else, e.g.
+        --retry-button=X.
+
     --screenshot-every=SECONDS
         (Private fork.) Every SECONDS seconds, save the frame the app is
         presenting as touchHLE_screenshot_N.bmp in the touchHLE folder (for

@@ -123,6 +123,10 @@ fn set_sdl2_orientation(orientation: DeviceOrientation) {
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
 pub enum FingerId {
+    /// Private fork: a `--deflex-pad` input holding a touch.
+    Pad(u8),
+    /// Private fork: the `--deflex-pad` menu pointer.
+    PadCursor,
     Mouse,
     Touch(i64),
     VirtualCursor,
@@ -131,6 +135,16 @@ pub enum FingerId {
     DpadToTouch,
 }
 pub type Coords = (f32, f32);
+
+/// Private fork: the controller inputs `--deflex-pad` reports.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+pub enum PadInput {
+    Button(sdl2::controller::Button),
+    LeftTrigger,
+    RightTrigger,
+    StickLeft,
+    StickRight,
+}
 
 /// Touch phases produced by [Window::update_stick_swipe].
 enum SwipeEvent {
@@ -176,6 +190,10 @@ pub enum Event {
     ToggleRotation,
     /// Private fork: the `--exit-button` was pressed (true) or released.
     ExitButton(bool),
+    /// Private fork: the `--retry-button` was pressed (true) or released.
+    RetryButton(bool),
+    /// Private fork: a `--deflex-pad` input was pressed (true) or released.
+    PadInput(PadInput, bool),
 }
 
 pub enum BatteryState {
@@ -284,6 +302,14 @@ pub struct Window {
     accelerometer: Option<sdl2::sensor::Sensor>,
     virtual_cursor_last: Option<(f32, f32, bool, bool)>,
     virtual_cursor_last_unsticky: Option<(f32, f32, Instant)>,
+    /// Private fork, `--deflex-pad`: the menu pointer (shown while enabled),
+    /// in the app's screen points as the user sees them.
+    pad_cursor_enabled: bool,
+    pad_cursor: Option<(f32, f32)>,
+    pad_cursor_pressed: bool,
+    pad_last_update: Instant,
+    pad_triggers: [bool; 2],
+    pad_stick_dir: i8,
     virtual_accelerometer_last: Option<(f32, f32, bool)>,
     /// Whether or not we are on the "main" environment stack (rather than
     /// a coroutine stack). Checked in various functions to make sure that
@@ -485,6 +511,12 @@ impl Window {
             accelerometer,
             virtual_cursor_last: None,
             virtual_cursor_last_unsticky: None,
+            pad_cursor_enabled: false,
+            pad_cursor: None,
+            pad_cursor_pressed: false,
+            pad_last_update: Instant::now(),
+            pad_triggers: [false; 2],
+            pad_stick_dir: 0,
             virtual_accelerometer_last: None,
             on_main_stack: true,
         };
@@ -679,6 +711,16 @@ impl Window {
                 }
             }
 
+            // Private fork: --deflex-pad takes over the controller.
+            if options.deflex_pad {
+                if let Some(pad_event) = self.deflex_pad_event(&event) {
+                    if let Some(pad_event) = pad_event {
+                        self.event_queue.push_back(pad_event);
+                    }
+                    continue;
+                }
+            }
+
             if options.mouse_to_swipe.is_some() {
                 if let E::MouseMotion {
                     x,
@@ -769,6 +811,13 @@ impl Window {
                     };
                     if Some(button) == options.exit_button {
                         self.event_queue.push_back(Event::ExitButton(matches!(
+                            event,
+                            E::ControllerButtonDown { .. }
+                        )));
+                        continue;
+                    }
+                    if Some(button) == options.retry_button {
+                        self.event_queue.push_back(Event::RetryButton(matches!(
                             event,
                             E::ControllerButtonDown { .. }
                         )));
@@ -1026,6 +1075,19 @@ impl Window {
                     keycode: Some(sdl2::keyboard::Keycode::Escape),
                     repeat: false,
                     ..
+                } if options.deflex_pad => {
+                    Event::PadInput(PadInput::Button(sdl2::controller::Button::B), true)
+                }
+                E::KeyUp {
+                    keycode: Some(sdl2::keyboard::Keycode::Escape),
+                    ..
+                } if options.deflex_pad => {
+                    Event::PadInput(PadInput::Button(sdl2::controller::Button::B), false)
+                }
+                E::KeyDown {
+                    keycode: Some(sdl2::keyboard::Keycode::Escape),
+                    repeat: false,
+                    ..
                 } if options.exit_button.is_some() => Event::ExitButton(true),
                 E::KeyUp {
                     keycode: Some(sdl2::keyboard::Keycode::Escape),
@@ -1073,6 +1135,10 @@ impl Window {
             }
         }
 
+        if options.deflex_pad {
+            self.update_pad_cursor(options);
+            return;
+        }
         if controller_updated {
             let (new_x, new_y, pressed, pressed_changed, moved) =
                 self.update_virtual_cursor(options);
@@ -1229,6 +1295,16 @@ impl Window {
     /// press state of the analog stick-controlled virtual cursor, if it is
     /// visible.
     pub fn virtual_cursor_visible_at(&self) -> Option<(f32, f32, bool)> {
+        if self.pad_cursor_enabled {
+            let (px, py) = self.pad_cursor?;
+            let (w, h) = self.view_size();
+            let (vx, vy, vw, vh) = self.viewport();
+            return Some((
+                vx as f32 + px / w as f32 * vw as f32,
+                vy as f32 + py / h as f32 * vh as f32,
+                self.pad_cursor_pressed,
+            ));
+        }
         let (x, y, pressed, visible) = self.virtual_cursor_last?;
         if visible {
             // When stickyness is in use, the visual cursor movement appears
@@ -1720,6 +1796,130 @@ impl Window {
     /// On a PC or laptop, this will make the window be rotated so the app
     /// content appears upright. On a mobile device, this might do something
     /// else, because the user can physically rotate the screen.
+    /// Private fork, `--deflex-pad`: turn a controller event into a
+    /// [Event::PadInput] (or a press of the menu pointer). `None` if it isn't
+    /// a controller event; `Some(None)` if it's handled with nothing to send.
+    fn deflex_pad_event(&mut self, event: &sdl2::event::Event) -> Option<Option<Event>> {
+        use sdl2::controller::Axis;
+        use sdl2::event::Event as E;
+        match *event {
+            E::ControllerButtonUp { button, .. } | E::ControllerButtonDown { button, .. } => {
+                let down = matches!(event, E::ControllerButtonDown { .. });
+                if button == sdl2::controller::Button::A
+                    && (self.pad_cursor_enabled || self.pad_cursor_pressed)
+                {
+                    self.pad_cursor_press(down);
+                    return Some(None);
+                }
+                Some(Some(Event::PadInput(PadInput::Button(button), down)))
+            }
+            E::ControllerAxisMotion { axis: axis @ (Axis::TriggerLeft | Axis::TriggerRight), value, .. } => {
+                let i = (axis == Axis::TriggerRight) as usize;
+                let held = if self.pad_triggers[i] { value > 8000 } else { value > 16000 };
+                if held == self.pad_triggers[i] {
+                    return Some(None);
+                }
+                self.pad_triggers[i] = held;
+                let input = if i == 0 { PadInput::LeftTrigger } else { PadInput::RightTrigger };
+                Some(Some(Event::PadInput(input, held)))
+            }
+            E::ControllerAxisMotion { axis: Axis::LeftX, value, .. } if !self.pad_cursor_enabled => {
+                let x = value as f32 / i16::MAX as f32;
+                let dir = if x < -0.5 {
+                    -1
+                } else if x > 0.5 {
+                    1
+                } else if x.abs() < 0.3 {
+                    0
+                } else {
+                    self.pad_stick_dir
+                };
+                if dir == self.pad_stick_dir {
+                    return Some(None);
+                }
+                let old = self.pad_stick_dir;
+                self.pad_stick_dir = dir;
+                let input = |d: i8| if d < 0 { PadInput::StickLeft } else { PadInput::StickRight };
+                if old != 0 {
+                    self.event_queue.push_back(Event::PadInput(input(old), false));
+                }
+                Some((dir != 0).then(|| Event::PadInput(input(dir), true)))
+            }
+            E::ControllerAxisMotion { .. } => Some(None),
+            _ => None,
+        }
+    }
+
+    /// Private fork, `--deflex-pad`: the app's screen size as the user sees
+    /// it (e.g. 1024x768 for a landscape iPad app).
+    fn view_size(&self) -> (u32, u32) {
+        size_for_orientation(self.device_family, self.device_orientation, NonZeroU32::new(1).unwrap())
+    }
+
+    /// Private fork, `--deflex-pad`: a point in the app's screen as the user
+    /// sees it to the app's own co-ordinates, as mouse input is converted.
+    fn view_to_app(&self, (x, y): (f32, f32)) -> (f32, f32) {
+        let (w, h) = self.view_size();
+        let matrix = self.rotation_matrix().inverse().unwrap();
+        let [px, py] = matrix.transform([x / w as f32 - 0.5, y / h as f32 - 0.5]);
+        let (out_w, out_h) = self.size_unrotated_unscaled();
+        (((px + 0.5) * out_w as f32).round(), ((py + 0.5) * out_h as f32).round())
+    }
+
+    /// Private fork, `--deflex-pad`: show or hide the menu pointer. Hiding it
+    /// lifts its finger.
+    pub fn set_pad_cursor_enabled(&mut self, on: bool) {
+        if on && self.pad_cursor.is_none() {
+            let (w, h) = self.view_size();
+            self.pad_cursor = Some((w as f32 / 2.0, h as f32 / 2.0));
+        }
+        if !on && self.pad_cursor_pressed {
+            self.pad_cursor_press(false);
+        }
+        if on != self.pad_cursor_enabled {
+            self.pad_stick_dir = 0;
+        }
+        self.pad_cursor_enabled = on;
+    }
+
+    fn pad_cursor_press(&mut self, down: bool) {
+        if down == self.pad_cursor_pressed {
+            return;
+        }
+        let Some(pos) = self.pad_cursor else { return };
+        self.pad_cursor_pressed = down;
+        let touch = HashMap::from([(FingerId::PadCursor, self.view_to_app(pos))]);
+        self.event_queue.push_back(if down { Event::TouchesDown(touch) } else { Event::TouchesUp(touch) });
+    }
+
+    /// The left stick moves the menu pointer (faster the further it's pushed),
+    /// dragging when A is held.
+    fn update_pad_cursor(&mut self, options: &Options) {
+        let now = Instant::now();
+        let dt = now.duration_since(self.pad_last_update).as_secs_f32().min(0.1);
+        self.pad_last_update = now;
+        if !self.pad_cursor_enabled {
+            return;
+        }
+        let Some((px, py)) = self.pad_cursor else { return };
+        let (x, y) = self.left_stick(options);
+        let mag = (x * x + y * y).sqrt().min(1.0);
+        if mag == 0.0 {
+            return;
+        }
+        let (w, h) = self.view_size();
+        let speed = 900.0 * mag.powf(1.6) / mag;
+        let pos = (
+            (px + x * speed * dt).clamp(0.0, w as f32 - 1.0),
+            (py + y * speed * dt).clamp(0.0, h as f32 - 1.0),
+        );
+        self.pad_cursor = Some(pos);
+        if self.pad_cursor_pressed {
+            let touch = HashMap::from([(FingerId::PadCursor, self.view_to_app(pos))]);
+            self.event_queue.push_back(Event::TouchesMove(touch));
+        }
+    }
+
     /// Private fork: F11 / Alt+Enter. Fullscreen is a borderless window
     /// covering the screen; the window is the app's own size.
     fn toggle_fullscreen(&mut self, options: &Options) {

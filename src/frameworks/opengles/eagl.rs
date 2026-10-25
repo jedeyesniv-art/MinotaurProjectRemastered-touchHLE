@@ -298,6 +298,9 @@ pub const CLASSES: ClassExports = objc_classes! {
     if let Some(every) = env.options.screenshot_every {
         save_screenshot_if_due(env, every);
     }
+    if env.options.deflex_pad {
+        crate::deflex::frame(env);
+    }
 
     let (fullscreen_layer, crop) = find_fullscreen_eagl_layer_and_crop(env);
 

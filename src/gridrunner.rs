@@ -131,44 +131,63 @@ const FIVE_A_DAY_EXIT_TAP: (f32, f32) = (384.0, 639.0);
 const FIVE_A_DAY_HISCORE: (u32, u32, u32, u32) = (160, 740, 400, 30);
 const FIVE_A_DAY_TOUCH_TO_PLAY: (u32, u32, u32, u32) = (214, 838, 346, 30);
 
-pub enum ExitButtonAction {
+/// Private fork: the controller buttons that act on what's on screen.
+#[derive(Copy, Clone, Debug)]
+pub enum ScreenButton {
+    /// `--exit-button`: Exit from the pause screen, quit from the main menu.
+    Exit,
+    /// `--retry-button`: Retry from the pause screen.
+    Retry,
+}
+
+pub enum ScreenAction {
     /// The main menu is showing: quit the app.
     Quit,
-    /// The pause screen is showing: tap Exit here.
-    TapExit((f32, f32)),
+    /// Tap here (in the app's own, portrait, screen points).
+    Tap((f32, f32)),
     /// Anything else, e.g. playing: do nothing.
     Nothing,
 }
 
 /// Fraction of a block of RGBA pixels that pass a test.
-fn fraction(pixels: &[u8], test: impl Fn(u8, u8, u8) -> bool) -> f32 {
+pub(crate) fn fraction(pixels: &[u8], test: impl Fn(u8, u8, u8) -> bool) -> f32 {
     let count = pixels.chunks_exact(4).filter(|p| test(p[0], p[1], p[2])).count();
     count as f32 / (pixels.len() / 4).max(1) as f32
 }
 
-pub fn exit_button_action(env: &mut Environment) -> ExitButtonAction {
-    use crate::frameworks::opengles::eagl::read_screen_pixels;
+pub fn screen_button_action(env: &mut Environment, which: ScreenButton) -> ScreenAction {
     use crate::window::DeviceOrientation;
 
+    match (env.bundle.bundle_identifier(), which) {
+        ("uk.co.llamasoft.deflex", _) => return deflex_screen_button_action(env, which),
+        (_, ScreenButton::Retry) => return ScreenAction::Nothing,
+        _ => (),
+    }
     if env.window().current_rotation() != DeviceOrientation::Portrait {
-        return ExitButtonAction::Nothing;
+        return ScreenAction::Nothing;
     }
     if env.bundle.bundle_identifier() == "uk.co.llamasoft.tp" {
         return five_a_day_exit_button_action(env);
     }
+    gridrunner_exit_button_action(env)
+}
+
+fn gridrunner_exit_button_action(env: &mut Environment) -> ScreenAction {
+    use crate::frameworks::opengles::eagl::read_screen_pixels;
+
     // The START! button is solid blue behind white letters.
     let blue = |r: u8, g: u8, b: u8| b > 200 && r < 60 && g < 60;
     if read_screen_pixels(env, START_BUTTON).is_some_and(|p| fraction(&p, blue) > 0.4) {
-        return ExitButtonAction::Quit;
+        return ScreenAction::Quit;
     }
     // The Exit sign is mid grey behind white letters.
     let grey = |r: u8, g: u8, b: u8| {
         r.abs_diff(g) < 12 && g.abs_diff(b) < 12 && (60..120).contains(&r)
     };
     if read_screen_pixels(env, EXIT_SIGN).is_some_and(|p| fraction(&p, grey) > 0.35) {
-        return ExitButtonAction::TapExit(EXIT_TAP);
+        return ScreenAction::Tap(EXIT_TAP);
     }
-    ExitButtonAction::Nothing
+    ScreenAction::Nothing
 }
 
 /// Five A Day: the Exit sign (blue-grey, measured 0.48 on the pause screen
@@ -176,7 +195,7 @@ pub fn exit_button_action(env: &mut Environment) -> ExitButtonAction {
 /// (measured 0.13-0.19 and 0.20-0.22 there, 0 on the other attract pages; the
 /// pause screen's TOUCH button matches the lavender only) mean the title
 /// screen, so quit. Anything else, e.g. playing, does nothing.
-fn five_a_day_exit_button_action(env: &mut Environment) -> ExitButtonAction {
+fn five_a_day_exit_button_action(env: &mut Environment) -> ScreenAction {
     use crate::frameworks::opengles::eagl::read_screen_pixels;
 
     let exit_grey = |r: u8, g: u8, b: u8| {
@@ -191,10 +210,64 @@ fn five_a_day_exit_button_action(env: &mut Environment) -> ExitButtonAction {
     let touch = read_screen_pixels(env, FIVE_A_DAY_TOUCH_TO_PLAY).map(|p| fraction(&p, lavender));
     log!("Exit button: Exit sign {:?}, LOCAL HISCORE {:?}, TOUCH TO PLAY {:?}", exit, hiscore, touch);
     if exit.is_some_and(|f| f > 0.3) {
-        ExitButtonAction::TapExit(FIVE_A_DAY_EXIT_TAP)
+        ScreenAction::Tap(FIVE_A_DAY_EXIT_TAP)
     } else if hiscore.is_some_and(|f| f > 0.06) && touch.is_some_and(|f| f > 0.08) {
-        ExitButtonAction::Quit
+        ScreenAction::Quit
     } else {
-        ExitButtonAction::Nothing
+        ScreenAction::Nothing
     }
+}
+
+/// Converts a point in the screen as the user sees it (e.g. 1024x768 for a
+/// landscape iPad app) to the app's own portrait screen points, the way
+/// mouse input is converted.
+pub(crate) fn from_view_point(env: &mut Environment, (x, y): (f32, f32)) -> (f32, f32) {
+    let window = env.window();
+    let (w, h) = window.size_unrotated_unscaled();
+    let (vw, vh) = match window.current_rotation() {
+        crate::window::DeviceOrientation::LandscapeLeft
+        | crate::window::DeviceOrientation::LandscapeRight => (h, w),
+        _ => (w, h),
+    };
+    let matrix = window.rotation_matrix().inverse().unwrap();
+    let [px, py] = matrix.transform([x / vw as f32 - 0.5, y / vh as f32 - 0.5]);
+    (((px + 0.5) * w as f32).round(), ((py + 0.5) * h as f32).round())
+}
+
+/// [from_view_point] for a rectangle (x, y, width, height).
+pub(crate) fn from_view_rect(env: &mut Environment, (x, y, w, h): (u32, u32, u32, u32)) -> (u32, u32, u32, u32) {
+    let a = from_view_point(env, (x as f32, y as f32));
+    let b = from_view_point(env, ((x + w) as f32, (y + h) as f32));
+    let (x0, x1) = (a.0.min(b.0), a.0.max(b.0));
+    let (y0, y1) = (a.1.min(b.1), a.1.max(b.1));
+    (x0 as u32, y0 as u32, (x1 - x0) as u32, (y1 - y0) as u32)
+}
+
+/// Deflex (landscape, 1024x768 as seen): its pause screen has RESUME, RETRY
+/// and QUIT buttons down the middle, each grey with white letters (white
+/// measured 0.11-0.14 in each box there, at most 0.025 in play). B taps QUIT,
+/// X taps RETRY. Anywhere else both do nothing.
+const DEFLEX_BUTTONS: [(u32, u32, u32, u32); 3] =
+    [(425, 270, 185, 75), (440, 505, 150, 75), (440, 622, 150, 70)];
+const DEFLEX_RETRY_TAP: (f32, f32) = (512.0, 543.0);
+const DEFLEX_QUIT_TAP: (f32, f32) = (512.0, 657.0);
+
+fn deflex_screen_button_action(env: &mut Environment, which: ScreenButton) -> ScreenAction {
+    use crate::frameworks::opengles::eagl::read_screen_pixels;
+
+    let white = |r: u8, g: u8, b: u8| r > 215 && g > 215 && b > 215;
+    let mut scores = [None; 3];
+    for (score, rect) in scores.iter_mut().zip(DEFLEX_BUTTONS) {
+        let rect = from_view_rect(env, rect);
+        *score = read_screen_pixels(env, rect).map(|p| fraction(&p, white));
+    }
+    log!("{:?} button: Deflex pause buttons white {:?}", which, scores);
+    if !scores.iter().all(|s| s.is_some_and(|f| f > 0.06)) {
+        return ScreenAction::Nothing;
+    }
+    let tap = match which {
+        ScreenButton::Exit => DEFLEX_QUIT_TAP,
+        ScreenButton::Retry => DEFLEX_RETRY_TAP,
+    };
+    ScreenAction::Tap(from_view_point(env, tap))
 }

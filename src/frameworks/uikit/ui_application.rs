@@ -438,7 +438,8 @@ pub(super) fn UIApplicationMain(
 }
 
 /// Tell the app it's about to quit and then exit.
-pub(super) fn exit(env: &mut Environment) {
+/// (Private fork: crate-visible for `--deflex-pad`.)
+pub(crate) fn exit(env: &mut Environment) {
     let ui_application: id = msg_class![env; UIApplication sharedApplication];
 
     let center: id = msg_class![env; NSNotificationCenter defaultCenter];

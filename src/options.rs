@@ -83,6 +83,10 @@ pub struct Options {
     pub sharp_scaling: bool,
     /// Private fork: Gridrunner's exit/quit button.
     pub exit_button: Option<Button>,
+    /// Private fork: see `--retry-button=` in OPTIONS_HELP.txt.
+    pub retry_button: Option<Button>,
+    /// Private fork: see `--deflex-pad` in OPTIONS_HELP.txt.
+    pub deflex_pad: bool,
     /// Private fork: see `--perf-log` in OPTIONS_HELP.txt.
     pub perf_log: Option<String>,
     /// Private fork: see `--screenshot-every=` in OPTIONS_HELP.txt.
@@ -169,6 +173,8 @@ impl Default for Options {
             smooth_render_textures: false,
             sharp_scaling: false,
             exit_button: None,
+            retry_button: None,
+            deflex_pad: false,
             perf_log: None,
             screenshot_every: None,
             hide_cursor: 2.0,
@@ -276,6 +282,10 @@ impl Options {
                     .filter(|&s: &f64| s > 0.0)
                     .ok_or_else(|| "--screenshot-every= requires a positive number of seconds".to_string())?,
             );
+        } else if arg == "--deflex-pad" {
+            self.deflex_pad = true;
+        } else if let Some(value) = arg.strip_prefix("--retry-button=") {
+            self.retry_button = Some(parse_button(value, "--retry-button=")?);
         } else if let Some(value) = arg.strip_prefix("--exit-button=") {
             self.exit_button = Some(parse_button(value, "--exit-button=")?);
         } else if arg == "--sharp-scaling" {

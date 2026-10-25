@@ -150,34 +150,12 @@ pub fn handle_events(env: &mut Environment) -> Option<Instant> {
                 }
             }
             Event::ExitButton(down) => {
-                use crate::gridrunner::{exit_button_action, ExitButtonAction};
-                use crate::window::FingerId;
-                let finger = FingerId::ButtonToTouch(env.options.exit_button.unwrap());
-                thread_local! {
-                    /// Where the exit button is touching, while it is.
-                    static TOUCHING: std::cell::Cell<Option<(f32, f32)>> = const { std::cell::Cell::new(None) };
-                }
-                if !down {
-                    if let Some(at) = TOUCHING.take() {
-                        let touch = std::collections::HashMap::from([(finger, at)]);
-                        ui_touch::handle_event(env, Event::TouchesUp(touch));
-                    }
-                    continue;
-                }
-                match exit_button_action(env) {
-                    ExitButtonAction::Quit => {
-                        echo!("Exit button pressed on the main menu, exiting.");
-                        ui_application::exit(env);
-                    }
-                    ExitButtonAction::TapExit(at) => {
-                        log!("Exit button pressed on the pause screen, tapping Exit.");
-                        TOUCHING.set(Some(at));
-                        let touch = std::collections::HashMap::from([(finger, at)]);
-                        ui_touch::handle_event(env, Event::TouchesDown(touch));
-                    }
-                    ExitButtonAction::Nothing => (),
-                }
+                screen_button(env, crate::gridrunner::ScreenButton::Exit, down);
             }
+            Event::RetryButton(down) => {
+                screen_button(env, crate::gridrunner::ScreenButton::Retry, down);
+            }
+            Event::PadInput(input, down) => crate::deflex::handle_input(env, input, down),
             Event::ToggleRotation => {
                 use crate::window::DeviceOrientation;
                 let new_orientation = match env.window().current_rotation() {
@@ -229,4 +207,43 @@ pub fn handle_events(env: &mut Environment) -> Option<Instant> {
     }
 
     ui_accelerometer::handle_accelerometer(env)
+}
+
+/// Private fork: the --exit-button and --retry-button. Each press looks at the
+/// screen (see [crate::gridrunner::screen_button_action]) and taps a button
+/// there, quits, or does nothing; the tap lifts when the button is released.
+fn screen_button(env: &mut Environment, which: crate::gridrunner::ScreenButton, down: bool) {
+    use crate::gridrunner::{screen_button_action, ScreenAction, ScreenButton};
+    use crate::window::{Event, FingerId};
+    let button = match which {
+        ScreenButton::Exit => env.options.exit_button,
+        ScreenButton::Retry => env.options.retry_button,
+    };
+    let finger = FingerId::ButtonToTouch(button.unwrap());
+    thread_local! {
+        /// Where each screen button is touching, while it is.
+        static TOUCHING: std::cell::RefCell<std::collections::HashMap<u8, (f32, f32)>> =
+            std::cell::RefCell::new(std::collections::HashMap::new());
+    }
+    let key = which as u8;
+    if !down {
+        if let Some(at) = TOUCHING.with(|t| t.borrow_mut().remove(&key)) {
+            let touch = std::collections::HashMap::from([(finger, at)]);
+            ui_touch::handle_event(env, Event::TouchesUp(touch));
+        }
+        return;
+    }
+    match screen_button_action(env, which) {
+        ScreenAction::Quit => {
+            echo!("Exit button pressed on the main menu, exiting.");
+            ui_application::exit(env);
+        }
+        ScreenAction::Tap(at) => {
+            log!("{:?} button: tapping {:?}.", which, at);
+            TOUCHING.with(|t| t.borrow_mut().insert(key, at));
+            let touch = std::collections::HashMap::from([(finger, at)]);
+            ui_touch::handle_event(env, Event::TouchesDown(touch));
+        }
+        ScreenAction::Nothing => (),
+    }
 }

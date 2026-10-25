@@ -228,6 +228,14 @@ pub const CLASSES: ClassExports = objc_classes! {
     () = msg_class![env; CATransaction setValue:selector_nsstring forKey:(get_static_str(env, touchHLE_kCATransactionAnimationDidStopSelector))];
 }
 
+// Private fork: Deflex and Goat Up set a flip/curl transition for a view swap.
+// The swap still happens; only the 3D effect is skipped.
++ (())setAnimationTransition:(NSInteger)transition
+                     forView:(id)view // UIView*
+                       cache:(bool)cache {
+    log_dbg!("[UIView setAnimationTransition:{:?} forView:{:?} cache:{:?}] (effect skipped)", transition, view, cache);
+}
+
 + (())beginAnimations:(id)animation_id // NSString*
               context:(ConstVoidPtr)context {
     log_dbg!("[UIView beginAnimations:{:?} context:{:?}]", animation_id, context);

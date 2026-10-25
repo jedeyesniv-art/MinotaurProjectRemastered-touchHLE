@@ -123,7 +123,18 @@ pub unsafe fn present_frame(
     let tex_coords: [f32; 12] = [0.0, 0.0, 0.0, 1.0, 1.0, 0.0, 1.0, 0.0, 0.0, 1.0, 1.0, 1.0];
     gles.EnableClientState(gles11::TEXTURE_COORD_ARRAY);
     gles.TexCoordPointer(2, gles11::FLOAT, 0, tex_coords.as_ptr() as *const GLvoid);
-    let matrix = Matrix::<4>::from(&rotation_matrix);
+    // Private fork: rotate the texture co-ordinates about the texture's
+    // centre, not its corner, so they stay within 0..1. Corner rotation only
+    // worked because the frame texture repeats; the --sharp-scaling texture
+    // clamps, which smeared its edge pixels across a landscape picture.
+    let mut columns = *Matrix::<4>::from(&rotation_matrix).columns();
+    let (cx, cy) = (
+        0.5 * (columns[0][0] + columns[1][0]),
+        0.5 * (columns[0][1] + columns[1][1]),
+    );
+    columns[3][0] = 0.5 - cx;
+    columns[3][1] = 0.5 - cy;
+    let matrix = Matrix::<4>::from_columns(columns);
     gles.MatrixMode(gles11::TEXTURE);
     gles.LoadMatrixf(matrix.columns().as_ptr() as *const _);
     gles.Enable(gles11::TEXTURE_2D);
@@ -164,16 +175,26 @@ pub unsafe fn present_frame(
 
         gles.Enable(gles11::BLEND);
         gles.BlendFunc(gles11::ONE, gles11::ONE_MINUS_SRC_ALPHA);
-        gles.Color4f(0.0, 0.0, 0.0, if pressed { 2.0 / 3.0 } else { 1.0 / 3.0 });
 
-        let radius = 10.0;
-
-        let mut vertices = vertices;
-        for i in (0..vertices.len()).step_by(2) {
-            vertices[i] = (vertices[i] * radius + x) / (vw as f32 / 2.0) - 1.0;
-            vertices[i + 1] = 1.0 - (vertices[i + 1] * radius + y) / (vh as f32 / 2.0);
-        }
-        gles.VertexPointer(2, gles11::FLOAT, 0, vertices.as_ptr() as *const GLvoid);
+        // Private fork: white with a dark centre (filled when pressed), sized
+        // to the picture, so it shows on dark games too.
+        let radius = (vh as f32 / 768.0 * 12.0).max(10.0);
+        let quad = |radius: f32| {
+            let mut quad = vertices;
+            for i in (0..quad.len()).step_by(2) {
+                quad[i] = (quad[i] * radius + x) / (vw as f32 / 2.0) - 1.0;
+                quad[i + 1] = 1.0 - (quad[i + 1] * radius + y) / (vh as f32 / 2.0);
+            }
+            quad
+        };
+        let outer = quad(radius);
+        let inner = quad(radius * 0.5);
+        gles.Color4f(0.9, 0.9, 0.9, 0.9);
+        gles.VertexPointer(2, gles11::FLOAT, 0, outer.as_ptr() as *const GLvoid);
+        gles.DrawArrays(gles11::TRIANGLES, 0, 6);
+        let a = if pressed { 0.9 } else { 0.6 };
+        gles.Color4f(0.0, 0.0, 0.0, a);
+        gles.VertexPointer(2, gles11::FLOAT, 0, inner.as_ptr() as *const GLvoid);
         gles.DrawArrays(gles11::TRIANGLES, 0, 6);
     }
 }

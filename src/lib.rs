@@ -40,6 +40,7 @@ mod frameworks;
 mod fs;
 mod gdb;
 mod gles;
+mod deflex;
 mod gridrunner;
 mod image;
 mod libc;
