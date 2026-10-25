@@ -50,6 +50,9 @@ pub struct Bezel {
     pub texture: u32,
     pub image_size: (u32, u32),
     pub screen_size: (u32, u32),
+    /// Regions of the frame moved into the right-hand margin, and their scale
+    /// (see `Window::margin_pieces`).
+    pub margin: Option<(Vec<[f32; 4]>, f32)>,
 }
 
 pub unsafe fn present_frame(
@@ -73,8 +76,8 @@ pub unsafe fn present_frame(
         -1.0, -1.0, -1.0, 1.0, 1.0, -1.0, 1.0, -1.0, -1.0, 1.0, 1.0, 1.0,
     ];
 
-    if let Some(bezel) = bezel {
-        draw_bezel(gles, &bezel, &vertices);
+    if let Some(bezel) = &bezel {
+        draw_bezel(gles, bezel, &vertices);
     }
 
     // Draw the quad
@@ -96,6 +99,15 @@ pub unsafe fn present_frame(
     gles.DrawArrays(gles11::TRIANGLES, 0, 6);
     // clean this up so we don't need to worry about it in e.g. Core Animation
     gles.LoadIdentity();
+
+    if let Some(Bezel {
+        screen_size,
+        margin: Some((pieces, scale)),
+        ..
+    }) = &bezel
+    {
+        draw_margin_pieces(gles, viewport, *screen_size, pieces, *scale, &vertices);
+    }
 
     // Display virtual cursor
     if let Some((x, y, pressed)) = virtual_cursor_visible_at {
@@ -181,4 +193,75 @@ unsafe fn draw_bezel(gles: &mut dyn GLES, bezel: &Bezel, vertices: &[f32; 12]) {
     gles.DrawArrays(gles11::TRIANGLES, 0, 6);
 
     gles.BindTexture(gles11::TEXTURE_2D, frame_texture as GLuint);
+}
+
+/// Private fork: copy regions of the frame (bound to `GL_TEXTURE_2D`, upright
+/// portrait) into the margin right of the viewport, stacked and centred there
+/// around 30% of the way down, then black them out where they were.
+unsafe fn draw_margin_pieces(
+    gles: &mut dyn GLES,
+    viewport: (u32, u32, u32, u32),
+    screen_size: (u32, u32),
+    pieces: &[[f32; 4]],
+    scale: f32,
+    vertices: &[f32; 12],
+) {
+    use gles11::types::*;
+
+    let (vx, vy, vw, vh) = viewport;
+    let (screen_w, screen_h) = screen_size;
+    let margin_x = vx + vw;
+    if margin_x >= screen_w {
+        return;
+    }
+    let margin_w = screen_w - margin_x;
+
+    let sizes: Vec<(u32, u32)> = pieces
+        .iter()
+        .map(|&[_, _, w, h]| {
+            (
+                (w * vw as f32 * scale).round() as u32,
+                (h * vh as f32 * scale).round() as u32,
+            )
+        })
+        .collect();
+    let gap = sizes.iter().map(|&(_, h)| h).max().unwrap_or(0) / 3;
+    let total_h = sizes.iter().map(|&(_, h)| h).sum::<u32>() + gap * (sizes.len() as u32 - 1);
+    let mut top = (screen_h as f32 * 0.30) as i32 - total_h as i32 / 2;
+
+    gles.EnableClientState(gles11::VERTEX_ARRAY);
+    gles.VertexPointer(2, gles11::FLOAT, 0, vertices.as_ptr() as *const GLvoid);
+    gles.EnableClientState(gles11::TEXTURE_COORD_ARRAY);
+    gles.Enable(gles11::TEXTURE_2D);
+    for (&[u, v, w, h], &(dest_w, dest_h)) in pieces.iter().zip(&sizes) {
+        // The frame's first row is its bottom.
+        let (u0, u1, v_top, v_bottom) = (u, u + w, 1.0 - v, 1.0 - v - h);
+        let tex_coords: [f32; 12] = [
+            u0, v_bottom, u0, v_top, u1, v_bottom, u1, v_bottom, u0, v_top, u1, v_top,
+        ];
+        gles.TexCoordPointer(2, gles11::FLOAT, 0, tex_coords.as_ptr() as *const GLvoid);
+        let x = margin_x as i32 + (margin_w as i32 - dest_w as i32) / 2;
+        let y = screen_h as i32 - top - dest_h as i32;
+        gles.Viewport(x, y, dest_w as _, dest_h as _);
+        gles.DrawArrays(gles11::TRIANGLES, 0, 6);
+        top += (dest_h + gap) as i32;
+    }
+
+    gles.DisableClientState(gles11::TEXTURE_COORD_ARRAY);
+    gles.Disable(gles11::TEXTURE_2D);
+    gles.Color4f(0.0, 0.0, 0.0, 1.0);
+    for &[u, v, w, h] in pieces {
+        let x0 = vx as f32 + u * vw as f32;
+        let x1 = vx as f32 + (u + w) * vw as f32;
+        let y0 = vy as f32 + (1.0 - v - h) * vh as f32;
+        let y1 = vy as f32 + (1.0 - v) * vh as f32;
+        let (x0, y0) = (x0.floor() as i32, y0.floor() as i32);
+        let (x1, y1) = (x1.ceil() as i32, y1.ceil() as i32);
+        gles.Viewport(x0, y0, x1 - x0, y1 - y0);
+        gles.DrawArrays(gles11::TRIANGLES, 0, 6);
+    }
+    gles.Color4f(1.0, 1.0, 1.0, 1.0);
+    gles.Enable(gles11::TEXTURE_2D);
+    gles.EnableClientState(gles11::TEXTURE_COORD_ARRAY);
+    gles.Viewport(vx as _, vy as _, vw as _, vh as _);
 }

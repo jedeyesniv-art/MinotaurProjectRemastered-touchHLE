@@ -613,6 +613,7 @@ unsafe fn present_renderbuffer(env: &mut Environment) {
     let rotation_matrix = env.window.as_mut().unwrap().rotation_matrix();
     let virtual_cursor_visible_at = env.window.as_mut().unwrap().virtual_cursor_visible_at();
     let bezel = env.window.as_ref().unwrap().bezel();
+    let margin = env.window.as_ref().unwrap().margin_pieces();
     let current_ctx = env
         .framework_state
         .opengles
@@ -769,6 +770,7 @@ unsafe fn present_renderbuffer(env: &mut Environment) {
             texture: bezel_texture,
             image_size: image.dimensions(),
             screen_size,
+            margin,
         }
     });
 

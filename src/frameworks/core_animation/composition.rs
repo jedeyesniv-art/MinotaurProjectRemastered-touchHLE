@@ -145,6 +145,7 @@ pub fn recomposite_if_necessary(env: &mut Environment, force: bool) -> Option<In
         env.window().virtual_cursor_visible_at(),
     );
     let bezel = env.window().bezel();
+    let margin = env.window().margin_pieces();
 
     // TODO: draw status bar if it's not hidden
 
@@ -372,6 +373,7 @@ pub fn recomposite_if_necessary(env: &mut Environment, force: bool) -> Option<In
                 .get_or_insert_with(|| upload_bezel(gles.as_mut(), &image)),
             image_size: image.dimensions(),
             screen_size,
+            margin,
         });
         gles.BindTexture(gles11::TEXTURE_2D, texture);
         gles.BindFramebufferOES(gles11::FRAMEBUFFER_OES, 0);

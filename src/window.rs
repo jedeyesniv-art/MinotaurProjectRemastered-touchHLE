@@ -246,6 +246,11 @@ pub struct Window {
     landscape_fill_screen: bool,
     /// See `--bezel`.
     bezel_image: Option<std::rc::Rc<Image>>,
+    /// See `--move-to-margin`: (u, v, width, height) as fractions of the
+    /// portrait picture, top-left origin.
+    margin_pieces: Vec<[f32; 4]>,
+    /// See `--margin-scale`.
+    margin_scale: f32,
     internal_gl_ins: Option<Box<dyn GLESContext>>,
     splash_image: Option<Image>,
     device_family: DeviceFamily,
@@ -421,6 +426,16 @@ impl Window {
             window_scale: options.window_scale.get(),
             integer_scaling: options.integer_scaling,
             landscape_fill_screen: options.landscape_fill_screen,
+            margin_pieces: {
+                let (w, h) = device_family.portrait_size();
+                let (w, h) = (w as f32, h as f32);
+                options
+                    .move_to_margin
+                    .iter()
+                    .map(|&(x, y, pw, ph)| [x / w, y / h, pw / w, ph / h])
+                    .collect()
+            },
+            margin_scale: options.margin_scale,
             bezel_image: options.bezel.as_ref().and_then(|path| {
                 let path = crate::paths::user_data_base_path().join(path);
                 match std::fs::read(&path).map_err(|e| e.to_string()).and_then(|b| Image::from_bytes(&b)) {
@@ -1311,6 +1326,18 @@ impl Window {
         }
         let image = self.bezel_image.clone()?;
         Some((image, self.window.drawable_size()))
+    }
+
+    /// Private fork: the `--move-to-margin` regions and their scale, if they
+    /// should be moved now (with the bezel, upright portrait only).
+    pub fn margin_pieces(&self) -> Option<(Vec<[f32; 4]>, f32)> {
+        if self.margin_pieces.is_empty()
+            || self.device_orientation != DeviceOrientation::Portrait
+            || self.bezel().is_none()
+        {
+            return None;
+        }
+        Some((self.margin_pieces.clone(), self.margin_scale))
     }
 
     /// Private fork: the button-to-touch mapping for the current orientation.

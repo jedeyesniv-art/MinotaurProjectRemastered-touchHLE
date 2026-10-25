@@ -89,6 +89,11 @@ pub struct Options {
     pub landscape_fill_screen: bool,
     /// Private fork: picture drawn behind the app in fullscreen portrait.
     pub bezel: Option<String>,
+    /// Private fork: regions (x, y, width, height, in portrait screen points)
+    /// moved from the app's picture into the bezel's right-hand margin.
+    pub move_to_margin: Vec<(f32, f32, f32, f32)>,
+    /// Private fork: size of the moved regions relative to the app's picture.
+    pub margin_scale: f32,
     pub deadzone: f32,
     pub analog_stick_tilt_controls: bool,
     pub x_tilt_range: f32,
@@ -145,6 +150,8 @@ impl Default for Options {
             integer_scaling: false,
             landscape_fill_screen: false,
             bezel: None,
+            move_to_margin: Vec::new(),
+            margin_scale: 1.5,
             nearest_textures: false,
             device_family: None,
             initial_orientation: DeviceOrientation::Portrait,
@@ -214,6 +221,22 @@ impl Options {
             self.landscape_fill_screen = true;
         } else if let Some(path) = arg.strip_prefix("--bezel=") {
             self.bezel = Some(path.to_string());
+        } else if let Some(values) = arg.strip_prefix("--move-to-margin=") {
+            let nums: [f32; 4] = values
+                .split(',')
+                .map(|s| s.parse::<f32>())
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|_| "invalid --move-to-margin".to_string())?
+                .try_into()
+                .map_err(|_| "--move-to-margin= requires four values".to_string())?;
+            self.move_to_margin
+                .push((nums[0], nums[1], nums[2], nums[3]));
+        } else if let Some(value) = arg.strip_prefix("--margin-scale=") {
+            self.margin_scale = value
+                .parse()
+                .ok()
+                .filter(|&s: &f32| s > 0.0)
+                .ok_or_else(|| "--margin-scale= requires a positive number".to_string())?;
         } else if arg == "--nearest-present" {
             self.nearest_present = true;
         } else if arg == "--nearest-textures" {

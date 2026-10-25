@@ -237,6 +237,19 @@ Game controller options:
         cover the screen, so make it the screen's size or shape for best
         results, e.g. --bezel=gridrunner_bezel.png.
 
+    --move-to-margin=X,Y,WIDTH,HEIGHT
+        (Private Gridrunner fork.) Along with --bezel, cut this region out of
+        the app's picture (portrait screen co-ordinates, top-left origin, 768x1024
+        on an iPad) and show it in the margin to the right of the game instead.
+        Can be given several times; the regions are stacked top to bottom in the
+        order given. Only while upright in portrait. Gridrunner's scores are
+        --move-to-margin=60,6,190,62 --move-to-margin=250,6,295,62
+        --move-to-margin=600,6,168,62.
+
+    --margin-scale=SCALE
+        (Private Gridrunner fork.) How big the --move-to-margin regions are
+        drawn, relative to the game picture. Default 1.5.
+
     --landscape-fill-screen
         (Private Gridrunner fork.) With --integer-scaling and --fullscreen, stop
         using whole-number scaling while the device is in landscape, so the
