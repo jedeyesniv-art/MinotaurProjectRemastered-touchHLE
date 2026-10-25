@@ -12,7 +12,7 @@
 mod eagl;
 mod gles_guest;
 
-use touchHLE_gl_bindings::gles11::types::GLenum;
+use touchHLE_gl_bindings::gles11::types::{GLenum, GLint, GLuint};
 
 use crate::mem::ConstPtr;
 
@@ -29,6 +29,10 @@ pub struct State {
     /// Current EAGLContext for each thread
     current_ctxs: std::collections::HashMap<crate::ThreadId, Option<crate::objc::id>>,
     strings_cache: std::collections::HashMap<GLenum, ConstPtr<u8>>,
+    /// Private fork, `--smooth-render-textures`: textures attached to a
+    /// framebuffer, and the (min, mag) filters the app asked for per texture.
+    render_textures: std::collections::HashSet<GLuint>,
+    requested_filters: std::collections::HashMap<GLuint, (Option<GLint>, Option<GLint>)>,
 }
 impl State {
     fn current_ctx_for_thread(&mut self, thread: crate::ThreadId) -> &mut Option<crate::objc::id> {

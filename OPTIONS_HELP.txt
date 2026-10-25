@@ -47,6 +47,11 @@ View options:
         textures. Can make pixel art sharper, but may make effects that rely
         on smooth filtering (glows, blurs) look blocky.
 
+    --smooth-render-textures
+        (Private fork.) With --nearest-textures, leave textures the app draws
+        into (render targets, often used for glows and trails) filtered the way
+        the app asked, so only the game's artwork is made sharp.
+
     --scale-hack=...
         Set a scaling factor for the window. touchHLE will attempt to run the
         app with an increased internal resolution. This is a hack and there's

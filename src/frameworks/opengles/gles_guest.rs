@@ -955,7 +955,15 @@ fn glDeleteTextures(env: &mut Environment, n: GLsizei, textures: ConstPtr<GLuint
         let n_usize: GuestUSize = n.try_into().unwrap();
         let textures = mem.ptr_at(textures, n_usize);
         unsafe { gles.DeleteTextures(n, textures) }
-    })
+    });
+    // Private fork: names can be reused, so forget what we knew about them.
+    let n_usize: GuestUSize = n.try_into().unwrap();
+    for i in 0..n_usize {
+        let texture = env.mem.read(textures + i);
+        let state = &mut env.framework_state.opengles;
+        state.render_textures.remove(&texture);
+        state.requested_filters.remove(&texture);
+    }
 }
 fn glActiveTexture(env: &mut Environment, texture: GLenum) {
     with_ctx_and_mem(env, |gles, _mem| unsafe { gles.ActiveTexture(texture) })
@@ -980,16 +988,77 @@ fn nearest_filter(param: GLint) -> GLint {
     }) as GLint
 }
 
+/// `--smooth-render-textures` (private fork): the texture bound to
+/// `GL_TEXTURE_2D` on the active unit.
+fn bound_texture(env: &mut Environment) -> GLuint {
+    with_ctx_and_mem(env, |gles, _mem| unsafe {
+        let mut texture = 0;
+        gles.GetIntegerv(gles11::TEXTURE_BINDING_2D, &mut texture);
+        texture as GLuint
+    })
+}
+
+fn bound_texture_is_render_texture(env: &mut Environment) -> bool {
+    let texture = bound_texture(env);
+    env.framework_state
+        .opengles
+        .render_textures
+        .contains(&texture)
+}
+
+/// `--smooth-render-textures` (private fork): remember the filter the app
+/// asked for on the bound texture, and say whether to leave it as it is.
+fn keep_filter(env: &mut Environment, pname: GLenum, param: GLint) -> bool {
+    let texture = bound_texture(env);
+    let state = &mut env.framework_state.opengles;
+    let requested = state.requested_filters.entry(texture).or_default();
+    if pname == gles11::TEXTURE_MIN_FILTER {
+        requested.0 = Some(param);
+    } else {
+        requested.1 = Some(param);
+    }
+    state.render_textures.contains(&texture)
+}
+
+/// `--smooth-render-textures` (private fork): give a texture that has just
+/// been attached to a framebuffer back the filters the app asked for.
+fn mark_render_texture(env: &mut Environment, texture: GLuint) {
+    let state = &mut env.framework_state.opengles;
+    if !state.render_textures.insert(texture) {
+        return;
+    }
+    let (min, mag) = state
+        .requested_filters
+        .get(&texture)
+        .copied()
+        .unwrap_or_default();
+    // GL_LINEAR is the default magnification filter.
+    let mag = mag.unwrap_or(gles11::LINEAR as _);
+    with_ctx_and_mem(env, |gles, _mem| unsafe {
+        let mut old_texture = 0;
+        gles.GetIntegerv(gles11::TEXTURE_BINDING_2D, &mut old_texture);
+        gles.BindTexture(gles11::TEXTURE_2D, texture);
+        if let Some(min) = min {
+            gles.TexParameteri(gles11::TEXTURE_2D, gles11::TEXTURE_MIN_FILTER, min);
+        }
+        gles.TexParameteri(gles11::TEXTURE_2D, gles11::TEXTURE_MAG_FILTER, mag);
+        gles.BindTexture(gles11::TEXTURE_2D, old_texture as GLuint);
+    })
+}
+
 fn glTexParameteri(env: &mut Environment, target: GLenum, pname: GLenum, param: GLint) {
     // So long as we haven't implemented glDrawTexOES yet, we can just ignore
     // this parameter, because it doesn't do anything for normal texture use.
     if pname == gles11::TEXTURE_CROP_RECT_OES {
         return;
     }
-    let param = if env.options.nearest_textures
-        && (pname == gles11::TEXTURE_MIN_FILTER || pname == gles11::TEXTURE_MAG_FILTER)
-    {
-        nearest_filter(param)
+    let is_filter = pname == gles11::TEXTURE_MIN_FILTER || pname == gles11::TEXTURE_MAG_FILTER;
+    let param = if env.options.nearest_textures && is_filter {
+        if env.options.smooth_render_textures && keep_filter(env, pname, param) {
+            param
+        } else {
+            nearest_filter(param)
+        }
     } else {
         param
     };
@@ -1085,7 +1154,8 @@ fn glTexImage2D(
     type_: GLenum,
     pixels: ConstVoidPtr,
 ) {
-    let nearest_textures = env.options.nearest_textures;
+    let nearest_textures = env.options.nearest_textures
+        && !(env.options.smooth_render_textures && bound_texture_is_render_texture(env));
     with_ctx_and_mem(env, |gles, mem| unsafe {
         if nearest_textures && level == 0 {
             gles.TexParameteri(target, gles11::TEXTURE_MAG_FILTER, gles11::NEAREST as _);
@@ -1330,7 +1400,10 @@ fn glFramebufferTexture2DOES(
 ) {
     with_ctx_and_mem(env, |gles, _mem| unsafe {
         gles.FramebufferTexture2DOES(target, attachment, textarget, texture, level)
-    })
+    });
+    if env.options.nearest_textures && env.options.smooth_render_textures && texture != 0 {
+        mark_render_texture(env, texture);
+    }
 }
 fn glGetFramebufferAttachmentParameterivOES(
     env: &mut Environment,

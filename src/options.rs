@@ -76,6 +76,9 @@ pub struct Options {
     pub nearest_present: bool,
     /// Private fork: force nearest-neighbour filtering of app textures.
     pub nearest_textures: bool,
+    /// Private fork: with `nearest_textures`, leave the filtering of textures
+    /// the app renders into as the app set it.
+    pub smooth_render_textures: bool,
     pub device_family: Option<DeviceFamily>,
     pub initial_orientation: DeviceOrientation,
     pub scale_hack: NonZeroU32,
@@ -153,6 +156,7 @@ impl Default for Options {
             move_to_margin: Vec::new(),
             margin_scale: 1.5,
             nearest_textures: false,
+            smooth_render_textures: false,
             device_family: None,
             initial_orientation: DeviceOrientation::Portrait,
             scale_hack: NonZeroU32::new(1).unwrap(),
@@ -241,6 +245,8 @@ impl Options {
             self.nearest_present = true;
         } else if arg == "--nearest-textures" {
             self.nearest_textures = true;
+        } else if arg == "--smooth-render-textures" {
+            self.smooth_render_textures = true;
         } else if arg == "--upside-down" {
             self.initial_orientation = DeviceOrientation::PortraitUpsideDown;
         } else if arg == "--landscape-left" {
