@@ -14,7 +14,7 @@ use crate::frameworks::foundation::ns_string::get_static_str;
 use crate::frameworks::foundation::NSUInteger;
 use crate::gles::gles11_raw as gles11; // constants only
 use crate::gles::gles11_raw::types::*;
-use crate::gles::present::{present_frame, upload_bezel, Bezel, FpsCounter};
+use crate::gles::present::{present_frame, upload_bezel, Bezel, FpsCounter, SharpScaler};
 use crate::gles::{create_gles1_ctx, create_gles2_ctx, gles1_on_gl2, GLESContext, GLES};
 use crate::mem::MutPtr;
 use crate::objc::{id, msg, nil, objc_classes, release, retain, ClassExports, HostObject};
@@ -69,6 +69,8 @@ pub(super) struct EAGLContextHostObject {
     pub mapped_buffers: HashMap<GLuint, (MutPtr<GLvoid>, *mut GLvoid)>,
     /// Private fork: this context's copy of the `--bezel` picture.
     bezel_texture: Option<GLuint>,
+    /// Private fork: see `--sharp-scaling`.
+    sharp_scaler: SharpScaler,
 }
 impl HostObject for EAGLContextHostObject {}
 
@@ -87,6 +89,7 @@ pub const CLASSES: ClassExports = objc_classes! {
         next_frame_due: None,
         mapped_buffers: HashMap::new(),
         bezel_texture: None,
+        sharp_scaler: SharpScaler::default(),
     });
     env.objc.alloc_object(this, host_object, &mut env.mem)
 }
@@ -625,6 +628,11 @@ unsafe fn present_renderbuffer(env: &mut Environment, crop: [f32; 4]) {
         .objc
         .borrow::<EAGLContextHostObject>(current_ctx)
         .bezel_texture;
+    let mut sharp_scaler = env
+        .objc
+        .borrow::<EAGLContextHostObject>(current_ctx)
+        .sharp_scaler;
+    let sharp_scaling = env.options.sharp_scaling;
 
     let gles_ctx = super::get_thread_context(
         &mut env.framework_state.opengles,
@@ -792,6 +800,8 @@ unsafe fn present_renderbuffer(env: &mut Environment, crop: [f32; 4]) {
         rotation_matrix,
         virtual_cursor_visible_at,
         bezel,
+        (src_w as u32, src_h as u32),
+        sharp_scaling.then_some(&mut sharp_scaler),
     );
 
     // Clean up the texture
@@ -878,9 +888,9 @@ unsafe fn present_renderbuffer(env: &mut Environment, crop: [f32; 4]) {
     // { let err = gles.GetError(); if err != 0 { panic!("{:#x}", err); } }
 
     std::mem::drop(gles_boxed);
-    env.objc
-        .borrow_mut::<EAGLContextHostObject>(current_ctx)
-        .bezel_texture = bezel_texture;
+    let host_object = env.objc.borrow_mut::<EAGLContextHostObject>(current_ctx);
+    host_object.bezel_texture = bezel_texture;
+    host_object.sharp_scaler = sharp_scaler;
 }
 
 /// Private fork: read a rectangle (x, y, width, height in screen points,

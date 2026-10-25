@@ -17,7 +17,7 @@ use crate::frameworks::core_graphics::cg_color::CGColorHostObject;
 use crate::frameworks::core_graphics::{cg_bitmap_context, cg_image, CGFloat, CGRect};
 use crate::gles::gles11_raw as gles11; // constants only
 use crate::gles::gles11_raw::types::*;
-use crate::gles::present::{present_frame, upload_bezel, Bezel, FpsCounter};
+use crate::gles::present::{present_frame, upload_bezel, Bezel, FpsCounter, SharpScaler};
 use crate::gles::GLES; // constants only
 use crate::image::Image;
 use crate::matrix::Matrix;
@@ -34,6 +34,8 @@ pub(super) struct State {
     misc_gl_objects: Option<MiscGlObjects>,
     /// Private fork: the internal context's copy of the `--bezel` picture.
     bezel_texture: Option<GLuint>,
+    /// Private fork: see `--sharp-scaling`.
+    sharp_scaler: SharpScaler,
 }
 
 struct MiscGlObjects {
@@ -377,12 +379,16 @@ pub fn recomposite_if_necessary(env: &mut Environment, force: bool) -> Option<In
         });
         gles.BindTexture(gles11::TEXTURE_2D, texture);
         gles.BindFramebufferOES(gles11::FRAMEBUFFER_OES, 0);
+        let sharp_scaling = env.options.sharp_scaling;
         present_frame(
             gles.as_mut(),
             present_frame_args.0,
             present_frame_args.1,
             present_frame_args.2,
             bezel,
+            (fb_width, fb_height),
+            sharp_scaling
+                .then_some(&mut env.framework_state.core_animation.composition.sharp_scaler),
         );
     }
     std::mem::drop(gles);

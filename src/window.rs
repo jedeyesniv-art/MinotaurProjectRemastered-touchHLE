@@ -965,6 +965,16 @@ impl Window {
                     echo!("F12 pressed, EnterDebugger event queued.");
                     Event::EnterDebugger
                 }
+                // Private fork: Esc does the same as the --exit-button.
+                E::KeyDown {
+                    keycode: Some(sdl2::keyboard::Keycode::Escape),
+                    repeat: false,
+                    ..
+                } if options.exit_button.is_some() => Event::ExitButton(true),
+                E::KeyUp {
+                    keycode: Some(sdl2::keyboard::Keycode::Escape),
+                    ..
+                } if options.exit_button.is_some() => Event::ExitButton(false),
                 E::KeyDown {
                     keycode: Some(sdl2::keyboard::Keycode::Backspace),
                     ..
@@ -1630,6 +1640,8 @@ impl Window {
                 matrix,
                 /* virtual_cursor_visible_at: */ None,
                 /* bezel: */ None,
+                (width, height),
+                /* sharp: */ None,
             );
 
             gl_ctx.DeleteTextures(1, &texture);

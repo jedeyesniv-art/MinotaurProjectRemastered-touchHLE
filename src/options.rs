@@ -79,6 +79,8 @@ pub struct Options {
     /// Private fork: with `nearest_textures`, leave the filtering of textures
     /// the app renders into as the app set it.
     pub smooth_render_textures: bool,
+    /// Private fork: see `--sharp-scaling` in OPTIONS_HELP.txt.
+    pub sharp_scaling: bool,
     /// Private fork: Gridrunner's exit/quit button.
     pub exit_button: Option<Button>,
     pub device_family: Option<DeviceFamily>,
@@ -159,6 +161,7 @@ impl Default for Options {
             margin_scale: 1.5,
             nearest_textures: false,
             smooth_render_textures: false,
+            sharp_scaling: false,
             exit_button: None,
             device_family: None,
             initial_orientation: DeviceOrientation::Portrait,
@@ -250,6 +253,8 @@ impl Options {
             self.nearest_textures = true;
         } else if let Some(value) = arg.strip_prefix("--exit-button=") {
             self.exit_button = Some(parse_button(value, "--exit-button=")?);
+        } else if arg == "--sharp-scaling" {
+            self.sharp_scaling = true;
         } else if arg == "--smooth-render-textures" {
             self.smooth_render_textures = true;
         } else if arg == "--upside-down" {

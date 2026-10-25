@@ -55,12 +55,24 @@ pub struct Bezel {
     pub margin: Option<(Vec<[f32; 4]>, f32)>,
 }
 
+/// Private fork, `--sharp-scaling`: a framebuffer and texture, kept per
+/// context, holding the frame blown up by a whole number with no filtering.
+#[derive(Copy, Clone, Default)]
+pub struct SharpScaler {
+    framebuffer: u32,
+    texture: u32,
+    size: (u32, u32),
+}
+
+/// Private fork: `frame_size` is the size in pixels of the frame texture.
 pub unsafe fn present_frame(
     gles: &mut dyn GLES,
     viewport: (u32, u32, u32, u32),
     rotation_matrix: Matrix<2>,
     virtual_cursor_visible_at: Option<(f32, f32, bool)>,
     bezel: Option<Bezel>,
+    frame_size: (u32, u32),
+    sharp: Option<&mut SharpScaler>,
 ) {
     // While this is a generic utility, it is closely tied to
     // crate::frameworks::opengles::eagl::present_renderbuffer, which handles
@@ -78,6 +90,15 @@ pub unsafe fn present_frame(
 
     if let Some(bezel) = &bezel {
         draw_bezel(gles, bezel, &vertices);
+    }
+
+    let mut frame_texture: GLint = 0;
+    gles.GetIntegerv(gles11::TEXTURE_BINDING_2D, &mut frame_texture);
+    let frame_texture = frame_texture as GLuint;
+    // How many screen pixels each frame pixel covers.
+    let scale = ((viewport.2 * viewport.3) as f32 / (frame_size.0 * frame_size.1) as f32).sqrt();
+    if let Some(sharp) = sharp {
+        prescale_frame(gles, sharp, frame_texture, frame_size, scale, &vertices);
     }
 
     // Draw the quad
@@ -102,11 +123,21 @@ pub unsafe fn present_frame(
 
     if let Some(Bezel {
         screen_size,
-        margin: Some((pieces, scale)),
+        margin: Some((pieces, margin_scale)),
         ..
     }) = &bezel
     {
-        draw_margin_pieces(gles, viewport, *screen_size, pieces, *scale, &vertices);
+        gles.BindTexture(gles11::TEXTURE_2D, frame_texture);
+        let piece_scale = ((scale * *margin_scale).round() as u32).max(1);
+        draw_margin_pieces(
+            gles,
+            viewport,
+            *screen_size,
+            pieces,
+            frame_size,
+            piece_scale,
+            &vertices,
+        );
     }
 
     // Display virtual cursor
@@ -135,11 +166,13 @@ pub unsafe fn present_frame(
 }
 
 /// Private fork: upload a bezel picture to a new texture in the current
-/// context. The texture binding is left changed.
+/// context, with mipmaps so it shrinks cheaply and cleanly on smaller screens.
+/// The texture binding is left changed.
 pub unsafe fn upload_bezel(gles: &mut dyn GLES, image: &crate::image::Image) -> u32 {
     let mut texture = 0;
     gles.GenTextures(1, &mut texture);
     gles.BindTexture(gles11::TEXTURE_2D, texture);
+    gles.TexParameteri(gles11::TEXTURE_2D, gles11::GENERATE_MIPMAP, gles11::TRUE as _);
     let (width, height) = image.dimensions();
     gles.TexImage2D(
         gles11::TEXTURE_2D,
@@ -152,10 +185,83 @@ pub unsafe fn upload_bezel(gles: &mut dyn GLES, image: &crate::image::Image) -> 
         gles11::UNSIGNED_BYTE,
         image.pixels().as_ptr() as *const _,
     );
-    for param in [gles11::TEXTURE_MIN_FILTER, gles11::TEXTURE_MAG_FILTER] {
-        gles.TexParameteri(gles11::TEXTURE_2D, param, gles11::LINEAR as _);
-    }
+    gles.TexParameteri(
+        gles11::TEXTURE_2D,
+        gles11::TEXTURE_MIN_FILTER,
+        gles11::LINEAR_MIPMAP_LINEAR as _,
+    );
+    gles.TexParameteri(gles11::TEXTURE_2D, gles11::TEXTURE_MAG_FILTER, gles11::LINEAR as _);
     texture
+}
+
+/// Private fork, `--sharp-scaling`: draw the frame into the scaler's texture
+/// blown up by the largest whole number that doesn't exceed `scale` (at least
+/// 1), with no filtering, and leave that texture bound and the window's
+/// framebuffer current. Drawing it smoothly from there to the screen only
+/// blends at pixel edges, so the picture stays sharp at any size.
+unsafe fn prescale_frame(
+    gles: &mut dyn GLES,
+    sharp: &mut SharpScaler,
+    frame_texture: u32,
+    (frame_w, frame_h): (u32, u32),
+    scale: f32,
+    vertices: &[f32; 12],
+) {
+    use gles11::types::*;
+
+    let factor = (scale.floor() as u32).max(1);
+    let size = (frame_w * factor, frame_h * factor);
+    if sharp.texture == 0 {
+        gles.GenTextures(1, &mut sharp.texture);
+        gles.GenFramebuffersOES(1, &mut sharp.framebuffer);
+    }
+    gles.BindTexture(gles11::TEXTURE_2D, sharp.texture);
+    if sharp.size != size {
+        gles.TexImage2D(
+            gles11::TEXTURE_2D,
+            0,
+            gles11::RGB as _,
+            size.0 as _,
+            size.1 as _,
+            0,
+            gles11::RGB,
+            gles11::UNSIGNED_BYTE,
+            std::ptr::null(),
+        );
+        for param in [gles11::TEXTURE_MIN_FILTER, gles11::TEXTURE_MAG_FILTER] {
+            gles.TexParameteri(gles11::TEXTURE_2D, param, gles11::LINEAR as _);
+        }
+        for param in [gles11::TEXTURE_WRAP_S, gles11::TEXTURE_WRAP_T] {
+            gles.TexParameteri(gles11::TEXTURE_2D, param, gles11::CLAMP_TO_EDGE as _);
+        }
+        sharp.size = size;
+    }
+    gles.BindFramebufferOES(gles11::FRAMEBUFFER_OES, sharp.framebuffer);
+    gles.FramebufferTexture2DOES(
+        gles11::FRAMEBUFFER_OES,
+        gles11::COLOR_ATTACHMENT0_OES,
+        gles11::TEXTURE_2D,
+        sharp.texture,
+        0,
+    );
+    gles.Viewport(0, 0, size.0 as _, size.1 as _);
+
+    gles.BindTexture(gles11::TEXTURE_2D, frame_texture);
+    for param in [gles11::TEXTURE_MIN_FILTER, gles11::TEXTURE_MAG_FILTER] {
+        gles.TexParameteri(gles11::TEXTURE_2D, param, gles11::NEAREST as _);
+    }
+    gles.MatrixMode(gles11::TEXTURE);
+    gles.LoadIdentity();
+    gles.EnableClientState(gles11::VERTEX_ARRAY);
+    gles.VertexPointer(2, gles11::FLOAT, 0, vertices.as_ptr() as *const GLvoid);
+    let tex_coords: [f32; 12] = [0.0, 0.0, 0.0, 1.0, 1.0, 0.0, 1.0, 0.0, 0.0, 1.0, 1.0, 1.0];
+    gles.EnableClientState(gles11::TEXTURE_COORD_ARRAY);
+    gles.TexCoordPointer(2, gles11::FLOAT, 0, tex_coords.as_ptr() as *const GLvoid);
+    gles.Enable(gles11::TEXTURE_2D);
+    gles.DrawArrays(gles11::TRIANGLES, 0, 6);
+
+    gles.BindFramebufferOES(gles11::FRAMEBUFFER_OES, 0);
+    gles.BindTexture(gles11::TEXTURE_2D, sharp.texture);
 }
 
 /// Draw the bezel over the whole screen, cropped to fill it, leaving the
@@ -196,14 +302,16 @@ unsafe fn draw_bezel(gles: &mut dyn GLES, bezel: &Bezel, vertices: &[f32; 12]) {
 }
 
 /// Private fork: copy regions of the frame (bound to `GL_TEXTURE_2D`, upright
-/// portrait) into the margin right of the viewport, stacked and centred there
-/// around 30% of the way down, then black them out where they were.
+/// portrait) into the margin right of the viewport at a whole-number `scale`,
+/// stacked and centred there around 30% of the way down, then black them out
+/// where they were.
 unsafe fn draw_margin_pieces(
     gles: &mut dyn GLES,
     viewport: (u32, u32, u32, u32),
     screen_size: (u32, u32),
     pieces: &[[f32; 4]],
-    scale: f32,
+    frame_size: (u32, u32),
+    scale: u32,
     vertices: &[f32; 12],
 ) {
     use gles11::types::*;
@@ -220,8 +328,8 @@ unsafe fn draw_margin_pieces(
         .iter()
         .map(|&[_, _, w, h]| {
             (
-                (w * vw as f32 * scale).round() as u32,
-                (h * vh as f32 * scale).round() as u32,
+                (w * frame_size.0 as f32).round() as u32 * scale,
+                (h * frame_size.1 as f32).round() as u32 * scale,
             )
         })
         .collect();

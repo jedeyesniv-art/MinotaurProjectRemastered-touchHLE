@@ -50,7 +50,8 @@ View options:
     --exit-button=BUTTON
         (Private Gridrunner fork.) In portrait, this button taps Exit on the
         pause screen and quits touchHLE from the main menu (the START! screen).
-        It does nothing anywhere else, e.g. --exit-button=B.
+        It does nothing anywhere else, e.g. --exit-button=B. The Esc key does
+        the same.
 
     --smooth-render-textures
         (Private fork.) With --nearest-textures, leave textures the app draws
@@ -259,6 +260,13 @@ Game controller options:
     --margin-scale=SCALE
         (Private Gridrunner fork.) How big the --move-to-margin regions are
         drawn, relative to the game picture. Default 1.5.
+
+    --sharp-scaling
+        (Private fork.) Fill the screen at any size while keeping pixels crisp
+        and even: the picture is first enlarged by a whole number with no
+        filtering, then smoothly stretched the rest of the way, so only pixel
+        edges are blended. Use instead of --integer-scaling, e.g. for screens
+        the game doesn't fit at a whole-number size.
 
     --landscape-fill-screen
         (Private Gridrunner fork.) With --integer-scaling and --fullscreen, stop
