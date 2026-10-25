@@ -1050,6 +1050,27 @@ fn mark_render_texture(env: &mut Environment, texture: GLuint) {
     if !state.render_textures.insert(texture) {
         return;
     }
+    apply_render_texture_filters(env, texture);
+}
+
+/// `--smooth-render-textures` (private fork): render textures are smooth in
+/// portrait and crisp in landscape (Gridrunner's retro mode draws its whole
+/// screen small into one and stretches it, which looked blurry). Called when
+/// the device turns.
+pub fn set_render_textures_crisp(env: &mut Environment, crisp: bool) {
+    let state = &mut env.framework_state.opengles;
+    if state.render_textures_crisp == crisp {
+        return;
+    }
+    state.render_textures_crisp = crisp;
+    let textures: Vec<GLuint> = state.render_textures.iter().copied().collect();
+    for texture in textures {
+        apply_render_texture_filters(env, texture);
+    }
+}
+
+fn apply_render_texture_filters(env: &mut Environment, texture: GLuint) {
+    let state = &mut env.framework_state.opengles;
     let (min, mag) = state
         .requested_filters
         .get(&texture)
@@ -1057,6 +1078,11 @@ fn mark_render_texture(env: &mut Environment, texture: GLuint) {
         .unwrap_or_default();
     // GL_LINEAR is the default magnification filter.
     let mag = mag.unwrap_or(gles11::LINEAR as _);
+    let (min, mag) = if state.render_textures_crisp {
+        (min.map(nearest_filter), nearest_filter(mag))
+    } else {
+        (min, mag)
+    };
     with_ctx_and_mem(env, |gles, _mem| unsafe {
         let mut old_texture = 0;
         gles.GetIntegerv(gles11::TEXTURE_BINDING_2D, &mut old_texture);
@@ -1077,7 +1103,10 @@ fn glTexParameteri(env: &mut Environment, target: GLenum, pname: GLenum, param: 
     }
     let is_filter = pname == gles11::TEXTURE_MIN_FILTER || pname == gles11::TEXTURE_MAG_FILTER;
     let param = if env.options.nearest_textures && is_filter {
-        if env.options.smooth_render_textures && keep_filter(env, pname, param) {
+        if env.options.smooth_render_textures
+            && keep_filter(env, pname, param)
+            && !env.framework_state.opengles.render_textures_crisp
+        {
             param
         } else {
             nearest_filter(param)

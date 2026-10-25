@@ -89,7 +89,9 @@ View options:
     --smooth-render-textures
         (Private fork.) With --nearest-textures, leave textures the app draws
         into (render targets, often used for glows and trails) filtered the way
-        the app asked, so only the game's artwork is made sharp.
+        the app asked, so only the game's artwork is made sharp. While the
+        device is turned to landscape (e.g. Gridrunner's retro mode, which draws
+        its whole screen into one) they are made sharp too.
 
     --scale-hack=...
         Set a scaling factor for the window. touchHLE will attempt to run the

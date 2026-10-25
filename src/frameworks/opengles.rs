@@ -11,6 +11,8 @@
 
 pub(crate) mod eagl;
 mod gles_guest;
+/// Private fork: see [gles_guest::set_render_textures_crisp].
+pub(crate) use gles_guest::set_render_textures_crisp;
 
 use touchHLE_gl_bindings::gles11::types::{GLenum, GLint, GLuint};
 
@@ -33,6 +35,10 @@ pub struct State {
     /// framebuffer, and the (min, mag) filters the app asked for per texture.
     render_textures: std::collections::HashSet<GLuint>,
     requested_filters: std::collections::HashMap<GLuint, (Option<GLint>, Option<GLint>)>,
+    /// Private fork: render textures are made crisp while the device is
+    /// turned to landscape (Gridrunner's retro mode draws its whole screen
+    /// small into one and stretches it).
+    render_textures_crisp: bool,
 }
 impl State {
     fn current_ctx_for_thread(&mut self, thread: crate::ThreadId) -> &mut Option<crate::objc::id> {

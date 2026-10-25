@@ -166,6 +166,10 @@ pub fn handle_events(env: &mut Environment) -> Option<Instant> {
                 };
                 log!("Turning the device to {:?}.", new_orientation);
                 env.on_parent_stack_in_coroutine(|window, _| window.rotate_device(new_orientation));
+                if env.options.nearest_textures && env.options.smooth_render_textures {
+                    let landscape = new_orientation == DeviceOrientation::LandscapeLeft;
+                    crate::frameworks::opengles::set_render_textures_crisp(env, landscape);
+                }
                 ui_device::generate_device_orientation_notification(env);
             }
             Event::TextInput(text_event) => {
