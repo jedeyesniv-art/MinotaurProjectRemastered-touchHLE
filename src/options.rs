@@ -33,6 +33,10 @@ pub enum Button {
     Back,
 }
 
+/// `--ambient-bars` defaults: brightness, smoothing seconds, brightness and
+/// saturation beside the picture.
+const AMBIENT_BARS_DEFAULT: [f32; 4] = [0.45, 0.4, 1.5, 1.8];
+
 fn parse_button(name: &str, option: &str) -> Result<Button, String> {
     match name {
         "DPadLeft" => Ok(Button::DPadLeft),
@@ -87,6 +91,9 @@ pub struct Options {
     pub retry_button: Option<Button>,
     /// Private fork: see `--deflex-pad` in OPTIONS_HELP.txt.
     pub deflex_pad: bool,
+    /// Private fork: see `--ambient-bars` in OPTIONS_HELP.txt: brightness,
+    /// smoothing seconds, brightness and saturation beside the picture.
+    pub ambient_bars: Option<[f32; 4]>,
     /// Private fork: see `--perf-log` in OPTIONS_HELP.txt.
     pub perf_log: Option<String>,
     /// Private fork: see `--screenshot-every=` in OPTIONS_HELP.txt.
@@ -175,6 +182,7 @@ impl Default for Options {
             exit_button: None,
             retry_button: None,
             deflex_pad: false,
+            ambient_bars: None,
             perf_log: None,
             screenshot_every: None,
             hide_cursor: 2.0,
@@ -282,6 +290,23 @@ impl Options {
                     .filter(|&s: &f64| s > 0.0)
                     .ok_or_else(|| "--screenshot-every= requires a positive number of seconds".to_string())?,
             );
+        } else if arg == "--ambient-bars" {
+            self.ambient_bars = Some(AMBIENT_BARS_DEFAULT);
+        } else if let Some(value) = arg.strip_prefix("--ambient-bars=") {
+            let mut values = AMBIENT_BARS_DEFAULT;
+            let parts: Vec<&str> = value.split(',').collect();
+            if parts.is_empty() || parts.len() > 4 {
+                return Err("--ambient-bars= takes up to four numbers".to_string());
+            }
+            for (slot, part) in values.iter_mut().zip(&parts) {
+                *slot = part
+                    .trim()
+                    .parse()
+                    .ok()
+                    .filter(|v: &f32| *v >= 0.0)
+                    .ok_or_else(|| format!("--ambient-bars=: {part:?} isn't a number"))?;
+            }
+            self.ambient_bars = Some(values);
         } else if arg == "--deflex-pad" {
             self.deflex_pad = true;
         } else if let Some(value) = arg.strip_prefix("--retry-button=") {

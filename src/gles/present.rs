@@ -64,7 +64,111 @@ pub struct SharpScaler {
     size: (u32, u32),
 }
 
+/// Private fork, `--ambient-bars`: a small framebuffer and texture, kept per
+/// context, holding a smoothed, shrunken copy of the picture (as displayed),
+/// which is stretched across the screen behind it to fill the bars.
+#[derive(Copy, Clone, Default)]
+pub struct AmbientGlow {
+    framebuffer: u32,
+    texture: u32,
+    size: (u32, u32),
+    filled: bool,
+    /// The shader that draws it (0 = not built yet, u32::MAX = failed, so the
+    /// plain dimmed glow is drawn instead), and its uniforms.
+    program: u32,
+    uniforms: [i32; 4],
+}
+
+const GLOW_VERTEX_SHADER: &str = "
+attribute vec2 a_pos;
+varying vec2 v_uv;
+void main() {
+    v_uv = a_pos * 0.5 + 0.5;
+    gl_Position = vec4(a_pos, 0.0, 1.0);
+}
+";
+
+/// Bright and saturated beside the picture, fading to the plain dimmed glow
+/// at the far edge of the bars.
+const GLOW_FRAGMENT_SHADER: &str = "
+precision mediump float;
+uniform sampler2D u_glow;
+uniform vec4 u_picture; // the picture's rectangle, 0-1 across the screen
+uniform vec4 u_params;  // near brightness, far brightness, near saturation, fade distance
+uniform vec4 u_screen;  // screen width / height
+varying vec2 v_uv;
+void main() {
+    vec3 c = texture2D(u_glow, v_uv).rgb;
+    vec2 d = max(vec2(0.0), max(u_picture.xy - v_uv, v_uv - u_picture.zw));
+    d.x *= u_screen.x;
+    float t = smoothstep(0.0, 1.0, clamp(length(d) / u_params.w, 0.0, 1.0));
+    float grey = dot(c, vec3(0.299, 0.587, 0.114));
+    c = clamp(mix(vec3(grey), c, mix(u_params.z, 1.0, t)), 0.0, 1.0);
+    gl_FragColor = vec4(clamp(c * mix(u_params.x, u_params.y, t), 0.0, 1.0), 1.0);
+}
+";
+
+unsafe fn build_glow_program(gles: &mut dyn GLES, glow: &mut AmbientGlow) {
+    use gles11::types::*;
+    const COMPILE_STATUS: GLenum = 0x8B81;
+    const LINK_STATUS: GLenum = 0x8B82;
+    const VERTEX_SHADER: GLenum = 0x8B31;
+    const FRAGMENT_SHADER: GLenum = 0x8B30;
+
+    glow.program = u32::MAX;
+    let mut shaders = [0; 2];
+    for (shader, (kind, source)) in shaders
+        .iter_mut()
+        .zip([(VERTEX_SHADER, GLOW_VERTEX_SHADER), (FRAGMENT_SHADER, GLOW_FRAGMENT_SHADER)])
+    {
+        *shader = gles.CreateShader(kind);
+        gles.ShaderSource(*shader, source);
+        gles.CompileShader(*shader);
+        let mut ok = 0;
+        gles.GetShaderiv(*shader, COMPILE_STATUS, &mut ok);
+        if ok == 0 {
+            log!("--ambient-bars: glow shader didn't compile, using the plain glow");
+            return;
+        }
+    }
+    let program = gles.CreateProgram();
+    gles.AttachShader(program, shaders[0]);
+    gles.AttachShader(program, shaders[1]);
+    gles.BindAttribLocation(program, 0, c"a_pos".as_ptr());
+    gles.LinkProgram(program);
+    let mut ok = 0;
+    gles.GetProgramiv(program, LINK_STATUS, &mut ok);
+    if ok == 0 {
+        log!("--ambient-bars: glow shader didn't link, using the plain glow");
+        return;
+    }
+    for (uniform, name) in glow
+        .uniforms
+        .iter_mut()
+        .zip([c"u_glow", c"u_picture", c"u_params", c"u_screen"])
+    {
+        *uniform = gles.GetUniformLocation(program, name.as_ptr());
+    }
+    glow.program = program;
+}
+
+/// Private fork: what [present_frame] needs to draw the ambient glow.
+pub struct Ambient<'a> {
+    pub glow: &'a mut AmbientGlow,
+    /// How bright the glow is (0-1).
+    pub brightness: f32,
+    /// Seconds for the glow to catch up with a change in the picture.
+    pub smoothing: f32,
+    /// Brightness right beside the picture, fading to `brightness`.
+    pub near_brightness: f32,
+    /// Saturation right beside the picture (1 = as is), fading to 1.
+    pub near_saturation: f32,
+    /// The window's size in pixels.
+    pub screen_size: (u32, u32),
+}
+
 /// Private fork: `frame_size` is the size in pixels of the frame texture.
+#[allow(clippy::too_many_arguments)]
 pub unsafe fn present_frame(
     gles: &mut dyn GLES,
     viewport: (u32, u32, u32, u32),
@@ -73,6 +177,7 @@ pub unsafe fn present_frame(
     bezel: Option<Bezel>,
     frame_size: (u32, u32),
     sharp: Option<&mut SharpScaler>,
+    ambient: Option<Ambient<'_>>,
 ) {
     // While this is a generic utility, it is closely tied to
     // crate::frameworks::opengles::eagl::present_renderbuffer, which handles
@@ -102,6 +207,12 @@ pub unsafe fn present_frame(
     let mut frame_texture: GLint = 0;
     gles.GetIntegerv(gles11::TEXTURE_BINDING_2D, &mut frame_texture);
     let frame_texture = frame_texture as GLuint;
+    if let Some(ambient) = ambient {
+        if bezel.is_none() {
+            draw_ambient_glow(gles, ambient, frame_texture, viewport, &rotation_matrix, &vertices);
+            gles.BindTexture(gles11::TEXTURE_2D, frame_texture);
+        }
+    }
     // How many screen pixels each frame pixel covers.
     let scale = ((viewport.2 * viewport.3) as f32 / (frame_size.0 * frame_size.1) as f32).sqrt();
     if let Some(sharp) = sharp {
@@ -123,18 +234,7 @@ pub unsafe fn present_frame(
     let tex_coords: [f32; 12] = [0.0, 0.0, 0.0, 1.0, 1.0, 0.0, 1.0, 0.0, 0.0, 1.0, 1.0, 1.0];
     gles.EnableClientState(gles11::TEXTURE_COORD_ARRAY);
     gles.TexCoordPointer(2, gles11::FLOAT, 0, tex_coords.as_ptr() as *const GLvoid);
-    // Private fork: rotate the texture co-ordinates about the texture's
-    // centre, not its corner, so they stay within 0..1. Corner rotation only
-    // worked because the frame texture repeats; the --sharp-scaling texture
-    // clamps, which smeared its edge pixels across a landscape picture.
-    let mut columns = *Matrix::<4>::from(&rotation_matrix).columns();
-    let (cx, cy) = (
-        0.5 * (columns[0][0] + columns[1][0]),
-        0.5 * (columns[0][1] + columns[1][1]),
-    );
-    columns[3][0] = 0.5 - cx;
-    columns[3][1] = 0.5 - cy;
-    let matrix = Matrix::<4>::from_columns(columns);
+    let matrix = centred_rotation(&rotation_matrix);
     gles.MatrixMode(gles11::TEXTURE);
     gles.LoadMatrixf(matrix.columns().as_ptr() as *const _);
     gles.Enable(gles11::TEXTURE_2D);
@@ -197,6 +297,162 @@ pub unsafe fn present_frame(
         gles.VertexPointer(2, gles11::FLOAT, 0, inner.as_ptr() as *const GLvoid);
         gles.DrawArrays(gles11::TRIANGLES, 0, 6);
     }
+}
+
+/// Private fork: the texture matrix that turns the frame for display. It
+/// rotates the texture co-ordinates about the texture's centre, not its
+/// corner, so they stay within 0..1. Corner rotation only worked because the
+/// frame texture repeats; the --sharp-scaling texture clamps, which smeared
+/// its edge pixels across a landscape picture.
+fn centred_rotation(rotation_matrix: &Matrix<2>) -> Matrix<4> {
+    let mut columns = *Matrix::<4>::from(rotation_matrix).columns();
+    let (cx, cy) = (
+        0.5 * (columns[0][0] + columns[1][0]),
+        0.5 * (columns[0][1] + columns[1][1]),
+    );
+    columns[3][0] = 0.5 - cx;
+    columns[3][1] = 0.5 - cy;
+    Matrix::<4>::from_columns(columns)
+}
+
+/// Private fork, `--ambient-bars`: blend this frame (turned for display and
+/// shrunk to a few dozen pixels, sampled four times) into the glow texture,
+/// then stretch the glow across the whole screen, dimmed. The picture is
+/// drawn over it afterwards, so only the bars show it: each bar takes the
+/// colours from its own side of the picture.
+unsafe fn draw_ambient_glow(
+    gles: &mut dyn GLES,
+    ambient: Ambient<'_>,
+    frame_texture: u32,
+    viewport: (u32, u32, u32, u32),
+    rotation_matrix: &Matrix<2>,
+    vertices: &[f32; 12],
+) {
+    use gles11::types::*;
+
+    let Ambient { glow, brightness, smoothing, near_brightness, near_saturation, screen_size } =
+        ambient;
+    // The glow has the picture's shape, 32 pixels on its long side.
+    let (vw, vh) = (viewport.2.max(1) as f32, viewport.3.max(1) as f32);
+    let size = if vw >= vh {
+        (32, ((32.0 * vh / vw).round() as u32).max(1))
+    } else {
+        (((32.0 * vw / vh).round() as u32).max(1), 32)
+    };
+    if glow.texture == 0 {
+        gles.GenTextures(1, &mut glow.texture);
+        gles.GenFramebuffersOES(1, &mut glow.framebuffer);
+    }
+    gles.BindTexture(gles11::TEXTURE_2D, glow.texture);
+    if glow.size != size {
+        gles.TexImage2D(
+            gles11::TEXTURE_2D,
+            0,
+            gles11::RGB as _,
+            size.0 as _,
+            size.1 as _,
+            0,
+            gles11::RGB,
+            gles11::UNSIGNED_BYTE,
+            std::ptr::null(),
+        );
+        for param in [gles11::TEXTURE_MIN_FILTER, gles11::TEXTURE_MAG_FILTER] {
+            gles.TexParameteri(gles11::TEXTURE_2D, param, gles11::LINEAR as _);
+        }
+        for param in [gles11::TEXTURE_WRAP_S, gles11::TEXTURE_WRAP_T] {
+            gles.TexParameteri(gles11::TEXTURE_2D, param, gles11::CLAMP_TO_EDGE as _);
+        }
+        glow.size = size;
+        glow.filled = false;
+    }
+
+    // The colour must reach the texture (the presenter normally replaces it).
+    let mut old_env_mode: GLint = 0;
+    gles.GetTexEnviv(gles11::TEXTURE_ENV, gles11::TEXTURE_ENV_MODE, &mut old_env_mode);
+    gles.TexEnvi(gles11::TEXTURE_ENV, gles11::TEXTURE_ENV_MODE, gles11::MODULATE as _);
+    gles.EnableClientState(gles11::VERTEX_ARRAY);
+    gles.EnableClientState(gles11::TEXTURE_COORD_ARRAY);
+    let tex_coords: [f32; 12] = [0.0, 0.0, 0.0, 1.0, 1.0, 0.0, 1.0, 0.0, 0.0, 1.0, 1.0, 1.0];
+    gles.TexCoordPointer(2, gles11::FLOAT, 0, tex_coords.as_ptr() as *const GLvoid);
+    gles.Enable(gles11::TEXTURE_2D);
+
+    // Blend the frame in: an exponential moving average over about
+    // `smoothing` seconds (at 60 fps), the first frame filling it outright.
+    gles.BindFramebufferOES(gles11::FRAMEBUFFER_OES, glow.framebuffer);
+    gles.FramebufferTexture2DOES(
+        gles11::FRAMEBUFFER_OES,
+        gles11::COLOR_ATTACHMENT0_OES,
+        gles11::TEXTURE_2D,
+        glow.texture,
+        0,
+    );
+    gles.Viewport(0, 0, size.0 as _, size.1 as _);
+    gles.BindTexture(gles11::TEXTURE_2D, frame_texture);
+    let matrix = centred_rotation(rotation_matrix);
+    gles.MatrixMode(gles11::TEXTURE);
+    gles.LoadMatrixf(matrix.columns().as_ptr() as *const _);
+    gles.Enable(gles11::BLEND);
+    gles.BlendFunc(gles11::SRC_ALPHA, gles11::ONE_MINUS_SRC_ALPHA);
+    let weight = if glow.filled {
+        1.0 - (-1.0 / (60.0 * smoothing.max(0.001))).exp()
+    } else {
+        1.0
+    };
+    // Four samples per glow pixel, a quarter of a pixel apart.
+    let (qx, qy) = (0.5 / size.0 as f32, 0.5 / size.1 as f32);
+    for (i, (dx, dy)) in [(-qx, -qy), (qx, -qy), (-qx, qy), (qx, qy)].into_iter().enumerate() {
+        let mut quad = *vertices;
+        for v in quad.chunks_exact_mut(2) {
+            v[0] += dx;
+            v[1] += dy;
+        }
+        // Equal shares of `weight` for the four samples.
+        let alpha = if glow.filled { weight / 4.0 } else { 1.0 / (i + 1) as f32 };
+        gles.Color4f(1.0, 1.0, 1.0, alpha);
+        gles.VertexPointer(2, gles11::FLOAT, 0, quad.as_ptr() as *const GLvoid);
+        gles.DrawArrays(gles11::TRIANGLES, 0, 6);
+    }
+    glow.filled = true;
+    gles.Disable(gles11::BLEND);
+    gles.LoadIdentity();
+    gles.BindFramebufferOES(gles11::FRAMEBUFFER_OES, 0);
+
+    // Stretch it across the screen: bright and saturated beside the picture,
+    // fading to the dimmed glow at the edges.
+    gles.Viewport(0, 0, screen_size.0 as _, screen_size.1 as _);
+    gles.BindTexture(gles11::TEXTURE_2D, glow.texture);
+    if glow.program == 0 {
+        build_glow_program(gles, glow);
+    }
+    if glow.program != u32::MAX {
+        let (sw, sh) = (screen_size.0.max(1) as f32, screen_size.1.max(1) as f32);
+        let (x0, y0) = (viewport.0 as f32 / sw, viewport.1 as f32 / sh);
+        let (x1, y1) = (x0 + vw / sw, y0 + vh / sh);
+        // Fade across the full width of the bars (in screen heights).
+        let fade = ((sw - vw) / 2.0 / sh).max((sh - vh) / 2.0 / sh).max(0.02);
+        gles.UseProgram(glow.program);
+        gles.Uniform1iv(glow.uniforms[0], 1, [0].as_ptr());
+        gles.Uniform4fv(glow.uniforms[1], 1, [x0, y0, x1, y1].as_ptr());
+        gles.Uniform4fv(
+            glow.uniforms[2],
+            1,
+            [near_brightness, brightness, near_saturation, fade].as_ptr(),
+        );
+        gles.Uniform4fv(glow.uniforms[3], 1, [sw / sh, 0.0, 0.0, 0.0].as_ptr());
+        gles.VertexAttribPointer(0, 2, gles11::FLOAT, gles11::FALSE, 0, vertices.as_ptr() as *const GLvoid);
+        gles.EnableVertexAttribArray(0);
+        gles.DrawArrays(gles11::TRIANGLES, 0, 6);
+        gles.DisableVertexAttribArray(0);
+        gles.UseProgram(0);
+    } else {
+        gles.Color4f(brightness, brightness, brightness, 1.0);
+        gles.VertexPointer(2, gles11::FLOAT, 0, vertices.as_ptr() as *const GLvoid);
+        gles.EnableClientState(gles11::VERTEX_ARRAY);
+        gles.DrawArrays(gles11::TRIANGLES, 0, 6);
+    }
+
+    gles.Color4f(1.0, 1.0, 1.0, 1.0);
+    gles.TexEnvi(gles11::TEXTURE_ENV, gles11::TEXTURE_ENV_MODE, old_env_mode);
 }
 
 /// Private fork: upload a bezel picture to a new texture in the current

@@ -14,7 +14,9 @@ use crate::frameworks::foundation::ns_string::get_static_str;
 use crate::frameworks::foundation::NSUInteger;
 use crate::gles::gles11_raw as gles11; // constants only
 use crate::gles::gles11_raw::types::*;
-use crate::gles::present::{present_frame, upload_bezel, Bezel, FpsCounter, SharpScaler};
+use crate::gles::present::{
+    present_frame, upload_bezel, Ambient, AmbientGlow, Bezel, FpsCounter, SharpScaler,
+};
 use crate::gles::{create_gles1_ctx, create_gles2_ctx, gles1_on_gl2, GLESContext, GLES};
 use crate::mem::MutPtr;
 use crate::objc::{id, msg, nil, objc_classes, release, retain, ClassExports, HostObject};
@@ -71,6 +73,8 @@ pub(super) struct EAGLContextHostObject {
     bezel_texture: Option<GLuint>,
     /// Private fork: see `--sharp-scaling`.
     sharp_scaler: SharpScaler,
+    /// Private fork: see `--ambient-bars`.
+    ambient_glow: AmbientGlow,
 }
 impl HostObject for EAGLContextHostObject {}
 
@@ -90,6 +94,7 @@ pub const CLASSES: ClassExports = objc_classes! {
         mapped_buffers: HashMap::new(),
         bezel_texture: None,
         sharp_scaler: SharpScaler::default(),
+        ambient_glow: AmbientGlow::default(),
     });
     env.objc.alloc_object(this, host_object, &mut env.mem)
 }
@@ -640,6 +645,12 @@ unsafe fn present_renderbuffer(env: &mut Environment, crop: [f32; 4]) {
         .borrow::<EAGLContextHostObject>(current_ctx)
         .sharp_scaler;
     let sharp_scaling = env.options.sharp_scaling;
+    let mut ambient_glow = env
+        .objc
+        .borrow::<EAGLContextHostObject>(current_ctx)
+        .ambient_glow;
+    let ambient_bars = env.options.ambient_bars;
+    let screen_size = env.window.as_ref().unwrap().drawable_size();
 
     let gles_ctx = super::get_thread_context(
         &mut env.framework_state.opengles,
@@ -816,6 +827,14 @@ unsafe fn present_renderbuffer(env: &mut Environment, crop: [f32; 4]) {
         bezel,
         (src_w as u32, src_h as u32),
         sharp_scaling.then_some(&mut sharp_scaler),
+        ambient_bars.map(|[brightness, smoothing, near_brightness, near_saturation]| Ambient {
+            glow: &mut ambient_glow,
+            brightness,
+            smoothing,
+            near_brightness,
+            near_saturation,
+            screen_size,
+        }),
     );
     if crate::perf_log::enabled() {
         crate::perf_log::present_end(present_started.elapsed());
@@ -908,6 +927,7 @@ unsafe fn present_renderbuffer(env: &mut Environment, crop: [f32; 4]) {
     let host_object = env.objc.borrow_mut::<EAGLContextHostObject>(current_ctx);
     host_object.bezel_texture = bezel_texture;
     host_object.sharp_scaler = sharp_scaler;
+    host_object.ambient_glow = ambient_glow;
 }
 
 /// Private fork: read a rectangle (x, y, width, height in screen points,

@@ -17,7 +17,9 @@ use crate::frameworks::core_graphics::cg_color::CGColorHostObject;
 use crate::frameworks::core_graphics::{cg_bitmap_context, cg_image, CGFloat, CGRect};
 use crate::gles::gles11_raw as gles11; // constants only
 use crate::gles::gles11_raw::types::*;
-use crate::gles::present::{present_frame, upload_bezel, Bezel, FpsCounter, SharpScaler};
+use crate::gles::present::{
+    present_frame, upload_bezel, Ambient, AmbientGlow, Bezel, FpsCounter, SharpScaler,
+};
 use crate::gles::GLES; // constants only
 use crate::image::Image;
 use crate::matrix::Matrix;
@@ -36,6 +38,8 @@ pub(super) struct State {
     bezel_texture: Option<GLuint>,
     /// Private fork: see `--sharp-scaling`.
     sharp_scaler: SharpScaler,
+    /// Private fork: see `--ambient-bars`.
+    ambient_glow: AmbientGlow,
 }
 
 struct MiscGlObjects {
@@ -347,6 +351,7 @@ pub fn recomposite_if_necessary(env: &mut Environment, force: bool) -> Option<In
 
     // Re-borrow
     let window = env.window.as_mut().unwrap();
+    let screen_size = window.drawable_size();
     let mut gles = window.make_internal_gl_ctx_current();
 
     // Clean up some GL state
@@ -380,6 +385,15 @@ pub fn recomposite_if_necessary(env: &mut Environment, force: bool) -> Option<In
         gles.BindTexture(gles11::TEXTURE_2D, texture);
         gles.BindFramebufferOES(gles11::FRAMEBUFFER_OES, 0);
         let sharp_scaling = env.options.sharp_scaling;
+        let composition = &mut env.framework_state.core_animation.composition;
+        let ambient = env.options.ambient_bars.map(|[brightness, smoothing, near_brightness, near_saturation]| Ambient {
+            glow: &mut composition.ambient_glow,
+            brightness,
+            smoothing,
+            near_brightness,
+            near_saturation,
+            screen_size,
+        });
         present_frame(
             gles.as_mut(),
             present_frame_args.0,
@@ -387,8 +401,8 @@ pub fn recomposite_if_necessary(env: &mut Environment, force: bool) -> Option<In
             present_frame_args.2,
             bezel,
             (fb_width, fb_height),
-            sharp_scaling
-                .then_some(&mut env.framework_state.core_animation.composition.sharp_scaler),
+            sharp_scaling.then_some(&mut composition.sharp_scaler),
+            ambient,
         );
     }
     std::mem::drop(gles);

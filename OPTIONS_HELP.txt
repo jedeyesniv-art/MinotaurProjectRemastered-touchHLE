@@ -60,6 +60,18 @@ View options:
         soon as the mouse moves. F11 or Alt+Enter switches between fullscreen
         and a window.
 
+    --ambient-bars
+    --ambient-bars=BRIGHTNESS,SECONDS,NEAR,SATURATION
+        (Private fork.) Fill the bars beside (or above and below) the picture
+        with a soft glow of its own colours, each bar taking the colours from
+        its side of the picture, like an "ambient light" TV. Right beside the
+        picture it is bright (NEAR, default 1.5) and saturated (SATURATION,
+        default 1.8; 1 = as is), fading to BRIGHTNESS (default 0.45) at the
+        screen's edges. SECONDS (default 0.4) smooths it so it drifts between
+        colours rather than flickering. Leave values off the end for their
+        defaults, e.g. --ambient-bars=0.45,0.4,2. Not drawn while a --bezel is
+        showing.
+
     --deflex-pad
         (Private fork, Deflex.) Controller support that follows what's on
         screen: A starts from the title; on the level select the left stick

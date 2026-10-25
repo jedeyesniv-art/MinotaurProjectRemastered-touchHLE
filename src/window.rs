@@ -1467,6 +1467,11 @@ impl Window {
 
     /// Private fork: the `--bezel` picture and the screen size to draw it at,
     /// if one should be drawn now (fullscreen, portrait).
+    /// Private fork: the window's size in pixels.
+    pub fn drawable_size(&self) -> (u32, u32) {
+        self.window.drawable_size()
+    }
+
     pub fn bezel(&self) -> Option<(std::rc::Rc<Image>, (u32, u32))> {
         let portrait = matches!(
             self.device_orientation,
@@ -1774,6 +1779,7 @@ impl Window {
                 /* bezel: */ None,
                 (width, height),
                 /* sharp: */ None,
+                /* ambient: */ None,
             );
 
             gl_ctx.DeleteTextures(1, &texture);
