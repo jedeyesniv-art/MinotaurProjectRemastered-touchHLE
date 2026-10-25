@@ -341,8 +341,15 @@ pub fn render_audio_unit(env: &mut Environment, audio_unit: AudioUnit) {
     }
     let queued_frames: u32 = audio_unit_host_object.queued_frames.iter().sum();
     let target_frames = (sample_rate * AUDIO_UNIT_LATENCY_SECS) as u32;
-    // Ace Combat Xi relies on slices being 2048 frames or under.
-    let slice_frames = audio_unit_host_object.maximum_frames_per_slice.clamp(64, 2048);
+    // Ace Combat Xi relies on slices being 2048 frames or under. Private
+    // fork: and at least four slices fill the target, so that a slice is
+    // always queued behind the one playing. (With one big slice, as at Five A
+    // Day's 11025 Hz, the next was only rendered once the last had finished
+    // playing, so the source ran dry and restarted ~12 times a second.)
+    let slice_frames = audio_unit_host_object
+        .maximum_frames_per_slice
+        .clamp(64, 2048)
+        .min((target_frames / 4).max(64));
     let render_callback = audio_unit_host_object.render_callback.unwrap();
     let mut frames_to_render = target_frames.saturating_sub(queued_frames);
 
