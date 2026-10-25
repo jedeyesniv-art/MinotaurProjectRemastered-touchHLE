@@ -7,7 +7,7 @@
 
 use crate::dyld::{ConstantExports, HostConstant};
 use crate::frameworks::core_animation::ca_eagl_layer::{
-    find_fullscreen_eagl_layer, get_pixels_vec_for_presenting, present_pixels,
+    find_fullscreen_eagl_layer_and_crop, get_pixels_vec_for_presenting, present_pixels,
 };
 use crate::frameworks::core_graphics::{CGRect, CGSize};
 use crate::frameworks::foundation::ns_string::get_static_str;
@@ -292,7 +292,7 @@ pub const CLASSES: ClassExports = objc_classes! {
             .count_frame(format_args!("EAGLContext {this:?}"));
     }
 
-    let fullscreen_layer = find_fullscreen_eagl_layer(env);
+    let (fullscreen_layer, crop) = find_fullscreen_eagl_layer_and_crop(env);
 
     // Unclear from documentation if this method requires the context to be
     // current, but it would be weird if it didn't?
@@ -327,7 +327,7 @@ pub const CLASSES: ClassExports = objc_classes! {
         );
         // re-borrow
         unsafe {
-            present_renderbuffer(env);
+            present_renderbuffer(env, crop);
         }
     } else {
         if fullscreen_layer != nil {
@@ -602,7 +602,9 @@ unsafe fn restore_es2_state(gles: &mut dyn GLES, state: Es2PresentState) {
     gles.UseProgram(state.program);
 }
 
-unsafe fn present_renderbuffer(env: &mut Environment) {
+/// Private fork: `crop` is the part of the renderbuffer to present, as
+/// (x, y, width, height) fractions, top-left origin.
+unsafe fn present_renderbuffer(env: &mut Environment, crop: [f32; 4]) {
     let present_filter = if env.options.nearest_present {
         gles11::NEAREST
     } else {
@@ -641,6 +643,15 @@ unsafe fn present_renderbuffer(env: &mut Environment) {
 
     let renderbuffer: GLuint = get_int(gles, gles11::RENDERBUFFER_BINDING_OES) as _;
     let (width, height) = get_renderbuffer_size(gles);
+    let [crop_x, crop_y, crop_w, crop_h] = crop;
+    let (src_x, src_w) = (
+        (crop_x * width as f32).round() as GLint,
+        (crop_w * width as f32).round() as GLsizei,
+    );
+    let (src_y, src_h) = (
+        ((1.0 - crop_y - crop_h) * height as f32).round() as GLint,
+        (crop_h * height as f32).round() as GLsizei,
+    );
 
     // The presentation code below uses the fixed-function pipeline, so an
     // OpenGL ES 2.0 app's program, texture unit and generic vertex arrays
@@ -671,10 +682,10 @@ unsafe fn present_renderbuffer(env: &mut Environment) {
         gles11::TEXTURE_2D,
         0,
         gles11::RGB as _,
-        0,
-        0,
-        width,
-        height,
+        src_x,
+        src_y,
+        src_w,
+        src_h,
         0,
     );
     // The texture will not have any mip levels so we must ensure the filter

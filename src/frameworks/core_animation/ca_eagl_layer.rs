@@ -46,8 +46,17 @@ pub const CLASSES: ClassExports = objc_classes! {
 /// and present it directly from the app's context. This function is used to
 /// determine when that will happen.
 pub fn find_fullscreen_eagl_layer(env: &mut Environment) -> id {
+    find_fullscreen_eagl_layer_and_crop(env).0
+}
+
+/// Private fork: like [find_fullscreen_eagl_layer], but the layer only has to
+/// cover the screen, not match it exactly (Gridrunner's window is 768x1029 on
+/// a 768x1024 screen). Also returns the part of the layer that is on screen,
+/// as (x, y, width, height) fractions of its bounds, top-left origin.
+pub fn find_fullscreen_eagl_layer_and_crop(env: &mut Environment) -> (id, [f32; 4]) {
+    let full = [0.0, 0.0, 1.0, 1.0];
     if env.options.force_composition {
-        return nil;
+        return (nil, full);
     }
 
     let windows = env.framework_state.uikit.ui_view.ui_window.windows.clone();
@@ -58,7 +67,7 @@ pub fn find_fullscreen_eagl_layer(env: &mut Environment) -> id {
         .rev()
         .find(|&window| !msg![env; window isHidden])
     else {
-        return nil;
+        return (nil, full);
     };
 
     let screen_bounds: CGRect = {
@@ -67,6 +76,8 @@ pub fn find_fullscreen_eagl_layer(env: &mut Environment) -> id {
     };
 
     let mut layer: id = msg![env; top_window layer];
+    // Top-left corner of the current layer in screen co-ordinates.
+    let mut origin = CGPoint { x: 0.0, y: 0.0 };
 
     // Descend through the hierarchy, looking only at the last layer in each
     // list of children, since that should be the one on top.
@@ -77,42 +88,70 @@ pub fn find_fullscreen_eagl_layer(env: &mut Environment) -> id {
         let layer_host_obj: &CALayerHostObject = env.objc.borrow(layer);
 
         // This is stricter than it should be. In theory we should accumulate
-        // the transforms and handle different anchor points etc, but real apps
-        // probably only use this common case.
-        if layer_host_obj.bounds.size != screen_bounds.size
+        // the transforms, but real apps probably only use this common case.
+        let size = layer_host_obj.bounds.size;
+        origin = CGPoint {
+            x: origin.x + layer_host_obj.position.x - size.width * layer_host_obj.anchor_point.x,
+            y: origin.y + layer_host_obj.position.y - size.height * layer_host_obj.anchor_point.y,
+        };
+        if origin.x > 0.0
+            || origin.y > 0.0
+            || origin.x + size.width < screen_bounds.size.width
+            || origin.y + size.height < screen_bounds.size.height
             || layer_host_obj.bounds.origin != (CGPoint { x: 0.0, y: 0.0 })
-            || layer_host_obj.anchor_point != (CGPoint { x: 0.5, y: 0.5 })
-            || layer_host_obj.position
-                != (CGPoint {
-                    x: screen_bounds.size.width / 2.0,
-                    y: screen_bounds.size.height / 2.0,
-                })
             || layer_host_obj.hidden
             || layer_host_obj.opacity != 1.0
             // TODO: support affine transforms that result in a full-screen
             //       layer (typical example is 90° rotation).
             || !layer_host_obj.affine_transform.is_identity()
         {
-            return nil;
+            return (nil, full);
         }
 
-        if let Some(&next) = layer_host_obj.sublayers.last() {
+        // Private fork: skip over layers that draw nothing (Gridrunner puts
+        // an empty view and a zero-size iCade reader view above its game).
+        let sublayers = layer_host_obj.sublayers.clone();
+        if let Some(&next) = sublayers.iter().rev().find(|&&l| !draws_nothing(env, l)) {
             layer = next;
         } else {
             break;
         }
     }
 
-    if !env.objc.borrow::<CALayerHostObject>(layer).opaque {
-        return nil;
+    let layer_host_obj = env.objc.borrow::<CALayerHostObject>(layer);
+    if !layer_host_obj.opaque {
+        return (nil, full);
     }
+    let size = layer_host_obj.bounds.size;
+    let crop = [
+        -origin.x / size.width,
+        -origin.y / size.height,
+        screen_bounds.size.width / size.width,
+        screen_bounds.size.height / size.height,
+    ];
 
     let ca_eagl_layer_class: Class = msg_class![env; CAEAGLLayer class];
     if !msg![env; layer isKindOfClass:ca_eagl_layer_class] {
-        return nil;
+        return (nil, full);
     }
 
-    layer
+    (layer, crop)
+}
+
+/// Private fork: whether a layer and its sublayers are certainly invisible:
+/// hidden, transparent, zero-size, or with no background colour, contents or
+/// drawing of their own.
+fn draws_nothing(env: &Environment, layer: id) -> bool {
+    let host_obj = env.objc.borrow::<CALayerHostObject>(layer);
+    let size = host_obj.bounds.size;
+    let empty = size.width * size.height == 0.0
+        || (host_obj.background_color.is_none()
+            && host_obj.contents == nil
+            && host_obj.cg_context.is_none()
+            && host_obj.presented_pixels.is_none());
+    host_obj.hidden
+        || host_obj.opacity == 0.0
+        || (empty && host_obj.sublayers.iter().all(|&l| draws_nothing(env, l)))
 }
 
 /// For use by `EAGLContext` when presenting to a `CAEAGLLayer`:
