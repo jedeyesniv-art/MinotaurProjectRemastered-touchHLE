@@ -797,6 +797,9 @@ unsafe fn present_renderbuffer(env: &mut Environment, crop: [f32; 4]) {
         }
     });
 
+    if crate::perf_log::enabled() {
+        crate::perf_log::present_stage();
+    }
     // Draw the quad
     present_frame(
         gles,

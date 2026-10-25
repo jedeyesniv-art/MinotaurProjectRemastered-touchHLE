@@ -83,6 +83,9 @@ pub unsafe fn present_frame(
 
     gles.ClearColor(0.0, 0.0, 0.0, 1.0);
     gles.Clear(gles11::COLOR_BUFFER_BIT | gles11::DEPTH_BUFFER_BIT | gles11::STENCIL_BUFFER_BIT);
+    if crate::perf_log::enabled() {
+        crate::perf_log::present_stage();
+    }
     gles.BindBuffer(gles11::ARRAY_BUFFER, 0);
     let vertices: [f32; 12] = [
         -1.0, -1.0, -1.0, 1.0, 1.0, -1.0, 1.0, -1.0, -1.0, 1.0, 1.0, 1.0,
@@ -92,6 +95,10 @@ pub unsafe fn present_frame(
         draw_bezel(gles, bezel, &vertices);
     }
 
+    if crate::perf_log::enabled() {
+        crate::perf_log::present_stage();
+    }
+
     let mut frame_texture: GLint = 0;
     gles.GetIntegerv(gles11::TEXTURE_BINDING_2D, &mut frame_texture);
     let frame_texture = frame_texture as GLuint;
@@ -99,6 +106,9 @@ pub unsafe fn present_frame(
     let scale = ((viewport.2 * viewport.3) as f32 / (frame_size.0 * frame_size.1) as f32).sqrt();
     if let Some(sharp) = sharp {
         prescale_frame(gles, sharp, frame_texture, frame_size, scale, &vertices);
+    }
+    if crate::perf_log::enabled() {
+        crate::perf_log::present_stage();
     }
 
     // Draw the quad
@@ -120,6 +130,9 @@ pub unsafe fn present_frame(
     gles.DrawArrays(gles11::TRIANGLES, 0, 6);
     // clean this up so we don't need to worry about it in e.g. Core Animation
     gles.LoadIdentity();
+    if crate::perf_log::enabled() {
+        crate::perf_log::present_stage();
+    }
 
     if let Some(Bezel {
         screen_size,
