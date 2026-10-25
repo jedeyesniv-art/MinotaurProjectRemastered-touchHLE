@@ -67,11 +67,35 @@ impl FsNodeBuilder {
     }
 }
 
+/// Private fork: where an IPA's bytes come from, a file or memory (the copy
+/// built into the executable, see [crate::embedded]).
+#[derive(Debug)]
+pub enum IpaSource {
+    File(std::fs::File),
+    Memory(std::io::Cursor<&'static [u8]>),
+}
+impl std::io::Read for IpaSource {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        match self {
+            IpaSource::File(file) => file.read(buf),
+            IpaSource::Memory(cursor) => cursor.read(buf),
+        }
+    }
+}
+impl std::io::Seek for IpaSource {
+    fn seek(&mut self, pos: std::io::SeekFrom) -> std::io::Result<u64> {
+        match self {
+            IpaSource::File(file) => file.seek(pos),
+            IpaSource::Memory(cursor) => cursor.seek(pos),
+        }
+    }
+}
+
 /// Represents an open app bundle, either a directory or a zip file.
 pub enum BundleData {
     HostDirectory(PathBuf),
     Zip {
-        zip: ZipArchive<std::fs::File>,
+        zip: ZipArchive<IpaSource>,
         /// Path to the app bundle inside the zip file.
         /// It should be `"Payload/<app name>.app"` (no trailing slash!).
         bundle_path: String,
@@ -79,7 +103,7 @@ pub enum BundleData {
 }
 
 impl BundleData {
-    fn find_bundle_path_in_archive(zip: &mut ZipArchive<std::fs::File>) -> Result<String, String> {
+    fn find_bundle_path_in_archive(zip: &mut ZipArchive<IpaSource>) -> Result<String, String> {
         for i in 0..zip.len() {
             let file = zip
                 .by_index(i)
@@ -117,8 +141,17 @@ impl BundleData {
     pub fn open_ipa(path: &Path) -> Result<BundleData, String> {
         let file =
             std::fs::File::open(path).map_err(|e| format!("Could not open IPA file: {e}"))?;
+        Self::open_ipa_source(IpaSource::File(file))
+    }
+
+    /// Private fork: open an IPA held in memory.
+    pub fn open_ipa_bytes(bytes: &'static [u8]) -> Result<BundleData, String> {
+        Self::open_ipa_source(IpaSource::Memory(std::io::Cursor::new(bytes)))
+    }
+
+    fn open_ipa_source(source: IpaSource) -> Result<BundleData, String> {
         let mut zip =
-            ZipArchive::new(file).map_err(|e| format!("Could not open IPA archive: {e}"))?;
+            ZipArchive::new(source).map_err(|e| format!("Could not open IPA archive: {e}"))?;
         let bundle_path = Self::find_bundle_path_in_archive(&mut zip)?;
         Ok(BundleData::Zip { zip, bundle_path })
     }
@@ -215,7 +248,7 @@ type DecompressedFile = Rc<[u8]>;
 /// Represents a file inside an IPA bundle that can be opened.
 #[derive(Debug)]
 pub struct IpaFileRef {
-    archive: Rc<RefCell<ZipArchive<std::fs::File>>>,
+    archive: Rc<RefCell<ZipArchive<IpaSource>>>,
     archive_files_cache: Rc<RefCell<HashMap<usize, DecompressedFile>>>,
     metadata_map: Rc<RefCell<HashMap<usize, ArchivedFileMetadata>>>,
     index: usize,

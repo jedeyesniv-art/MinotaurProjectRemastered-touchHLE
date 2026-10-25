@@ -438,9 +438,13 @@ impl Window {
                     .collect()
             },
             margin_scale: options.margin_scale,
-            bezel_image: options.bezel.as_ref().and_then(|path| {
-                let path = crate::paths::user_data_base_path().join(path);
-                match std::fs::read(&path).map_err(|e| e.to_string()).and_then(|b| Image::from_bytes(&b)) {
+            bezel_image: options.bezel.as_ref().and_then(|name| {
+                let path = crate::paths::user_data_base_path().join(name);
+                // A file next to touchHLE wins over a built-in copy.
+                let bytes = std::fs::read(&path).or_else(|e| {
+                    crate::embedded::resource(name).map(<[u8]>::to_vec).ok_or(e)
+                });
+                match bytes.map_err(|e| e.to_string()).and_then(|b| Image::from_bytes(&b)) {
                     Ok(image) => Some(std::rc::Rc::new(image)),
                     Err(e) => {
                         log!("Couldn't load bezel {:?}: {}", path, e);

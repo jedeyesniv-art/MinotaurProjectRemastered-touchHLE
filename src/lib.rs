@@ -33,6 +33,7 @@ mod bundle;
 mod cpu;
 mod debug;
 mod dyld;
+mod embedded;
 mod environment;
 mod font;
 mod frameworks;
@@ -222,7 +223,10 @@ pub fn main<T: Iterator<Item = String>>(mut args: T) -> Result<(), String> {
                 "No app specified. Use the --help flag to see command-line usage.".to_string(),
             );
         }
-        if let Some(only_app) = only_app_in_apps_dir() {
+        if embedded::has_game() {
+            echo!("No app specified, starting the built-in app.");
+            PathBuf::from(embedded::BUILT_IN_APP)
+        } else if let Some(only_app) = only_app_in_apps_dir() {
             echo!("No app specified, starting the only app installed: {:?}", only_app);
             only_app
         } else {
@@ -243,8 +247,12 @@ pub fn main<T: Iterator<Item = String>>(mut args: T) -> Result<(), String> {
         log!("Warning: The bundle path has a trailing quotation mark! This often happens accidentally on Windows when tab-completing, because '\\\"' gets interpreted by Rust in the wrong way. Did you meant to write {:?}?", fixed);
     }
 
-    let bundle_data = fs::BundleData::open_any(&bundle_path)
-        .map_err(|e| format!("Could not open app bundle: {e}"))?;
+    let bundle_data = if bundle_path.as_os_str() == embedded::BUILT_IN_APP {
+        embedded::open_game()
+    } else {
+        fs::BundleData::open_any(&bundle_path)
+    }
+    .map_err(|e| format!("Could not open app bundle: {e}"))?;
     let (bundle, fs) = match bundle::Bundle::new_bundle_and_fs_from_host_path(
         bundle_data,
         /* read_only_mode: */ false,
@@ -348,6 +356,7 @@ pub fn main<T: Iterator<Item = String>>(mut args: T) -> Result<(), String> {
         }
         Ok(())
     }
+    embedded::write_missing_user_files();
     let default_options_path = paths::DEFAULT_OPTIONS_FILE;
     match paths::ResourceFile::open(default_options_path) {
         Ok(mut file) => apply_options(file.get(), default_options_path, &mut options, app_id)?,

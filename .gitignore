@@ -27,3 +27,6 @@ android/build
 # Default developer dump file
 
 DUMP.txt
+
+# Private fork: files built into the single-exe build (build-single-exe.ps1)
+/embedded

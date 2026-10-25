@@ -28,6 +28,9 @@ path = "src/bin.rs"
 
 [features]
 default = ["static"]
+# Private fork: build Gridrunner and touchHLE's resources into the executable
+# (see src/embedded.rs and build-single-exe.ps1).
+embedded_gridrunner = []
 static = ["sdl2/bundled", "sdl2/static-link", "touchHLE_openal_soft_wrapper/static"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -87,3 +90,11 @@ cargo-license = "0.5.1"
 cc = { workspace = true }
 cmake = { workspace = true }
 gl_generator = { workspace = true }
+
+# Private fork: a smaller executable. Link-time optimisation across all the
+# Rust code, and no symbol tables (crash backtraces lose function names).
+[profile.release]
+lto = "fat"
+codegen-units = 1
+opt-level = "s"
+strip = true
