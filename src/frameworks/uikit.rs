@@ -149,6 +149,33 @@ pub fn handle_events(env: &mut Environment) -> Option<Instant> {
                     log!("Ignoring EnterDebugger event: no debugger connected.");
                 }
             }
+            Event::ExitButton(down) => {
+                use crate::gridrunner::{exit_button_action, ExitButtonAction, EXIT_TAP};
+                use crate::window::FingerId;
+                let finger = FingerId::ButtonToTouch(env.options.exit_button.unwrap());
+                let touch = std::collections::HashMap::from([(finger, EXIT_TAP)]);
+                thread_local! {
+                    static TOUCHING: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+                }
+                if !down {
+                    if TOUCHING.replace(false) {
+                        ui_touch::handle_event(env, Event::TouchesUp(touch));
+                    }
+                    continue;
+                }
+                match exit_button_action(env) {
+                    ExitButtonAction::Quit => {
+                        echo!("Exit button pressed on the main menu, exiting.");
+                        ui_application::exit(env);
+                    }
+                    ExitButtonAction::TapExit => {
+                        log!("Exit button pressed on the pause screen, tapping Exit.");
+                        TOUCHING.set(true);
+                        ui_touch::handle_event(env, Event::TouchesDown(touch));
+                    }
+                    ExitButtonAction::Nothing => (),
+                }
+            }
             Event::ToggleRotation => {
                 use crate::window::DeviceOrientation;
                 let new_orientation = match env.window().current_rotation() {

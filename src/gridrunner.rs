@@ -9,6 +9,9 @@
 //! its iCade code steps by 0.08 per tick while a direction is held. We replace
 //! that block with a call to [icade_analog], which eases them towards the left
 //! stick's position instead.
+//!
+//! Also `--exit-button=`: one button that taps Exit on the pause screen and
+//! quits from the main menu, telling the two apart by what's on screen.
 
 use crate::mem::{MutPtr, MutVoidPtr, Ptr};
 use crate::Environment;
@@ -112,4 +115,47 @@ fn icade_analog(env: &mut Environment, game: MutVoidPtr) {
     let dirs_ptr: MutPtr<u32> = Ptr::from_bits(game + DIRECTIONS);
     let state = env.mem.read(dirs_ptr);
     env.mem.write(dirs_ptr, (state & !0xf) | dirs);
+}
+
+/// Where the main menu's START! button and the pause screen's Exit sign are
+/// (portrait screen points), and where to tap Exit.
+const START_BUTTON: (u32, u32, u32, u32) = (200, 780, 370, 100);
+const EXIT_SIGN: (u32, u32, u32, u32) = (290, 582, 188, 100);
+pub const EXIT_TAP: (f32, f32) = (384.0, 633.0);
+
+pub enum ExitButtonAction {
+    /// The main menu is showing: quit the app.
+    Quit,
+    /// The pause screen is showing: tap Exit.
+    TapExit,
+    /// Anything else, e.g. playing: do nothing.
+    Nothing,
+}
+
+/// Fraction of a block of RGBA pixels that pass a test.
+fn fraction(pixels: &[u8], test: impl Fn(u8, u8, u8) -> bool) -> f32 {
+    let count = pixels.chunks_exact(4).filter(|p| test(p[0], p[1], p[2])).count();
+    count as f32 / (pixels.len() / 4).max(1) as f32
+}
+
+pub fn exit_button_action(env: &mut Environment) -> ExitButtonAction {
+    use crate::frameworks::opengles::eagl::read_screen_pixels;
+    use crate::window::DeviceOrientation;
+
+    if env.window().current_rotation() != DeviceOrientation::Portrait {
+        return ExitButtonAction::Nothing;
+    }
+    // The START! button is solid blue behind white letters.
+    let blue = |r: u8, g: u8, b: u8| b > 200 && r < 60 && g < 60;
+    if read_screen_pixels(env, START_BUTTON).is_some_and(|p| fraction(&p, blue) > 0.4) {
+        return ExitButtonAction::Quit;
+    }
+    // The Exit sign is mid grey behind white letters.
+    let grey = |r: u8, g: u8, b: u8| {
+        r.abs_diff(g) < 12 && g.abs_diff(b) < 12 && (60..120).contains(&r)
+    };
+    if read_screen_pixels(env, EXIT_SIGN).is_some_and(|p| fraction(&p, grey) > 0.35) {
+        return ExitButtonAction::TapExit;
+    }
+    ExitButtonAction::Nothing
 }

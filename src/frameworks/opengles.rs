@@ -9,7 +9,7 @@
 //! surface. See [crate::gles] for other uses and a discussion of the broader
 //! topic.
 
-mod eagl;
+pub(crate) mod eagl;
 mod gles_guest;
 
 use touchHLE_gl_bindings::gles11::types::{GLenum, GLint, GLuint};

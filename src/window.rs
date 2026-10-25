@@ -174,6 +174,8 @@ pub enum Event {
     /// Private fork: turn the device between portrait and landscape
     /// (`--button-to-rotate`).
     ToggleRotation,
+    /// Private fork: the `--exit-button` was pressed (true) or released.
+    ExitButton(bool),
 }
 
 pub enum BatteryState {
@@ -718,6 +720,13 @@ impl Window {
                     let Some(button) = translate_button(button) else {
                         continue;
                     };
+                    if Some(button) == options.exit_button {
+                        self.event_queue.push_back(Event::ExitButton(matches!(
+                            event,
+                            E::ControllerButtonDown { .. }
+                        )));
+                        continue;
+                    }
                     // Called whenever a DPad direction is pressed or released
                     if (button == crate::options::Button::DPadLeft
                         || button == crate::options::Button::DPadUp

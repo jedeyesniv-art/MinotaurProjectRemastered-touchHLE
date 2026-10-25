@@ -882,3 +882,67 @@ unsafe fn present_renderbuffer(env: &mut Environment, crop: [f32; 4]) {
         .borrow_mut::<EAGLContextHostObject>(current_ctx)
         .bezel_texture = bezel_texture;
 }
+
+/// Private fork: read a rectangle (x, y, width, height in screen points,
+/// top-left origin) of the last frame the current thread's context drew to
+/// its layer, as RGBA rows bottom row first. Assumes the layer's top-left
+/// corner is the screen's. Returns [None] if there is no such frame.
+pub fn read_screen_pixels(env: &mut Environment, rect: (u32, u32, u32, u32)) -> Option<Vec<u8>> {
+    let ctx = (*env
+        .framework_state
+        .opengles
+        .current_ctx_for_thread(env.current_thread))?;
+    let renderbuffer = *env
+        .objc
+        .borrow::<EAGLContextHostObject>(ctx)
+        .renderbuffer_drawable_bindings
+        .borrow()
+        .keys()
+        .next()?;
+    let screen_width = env.window().size_unrotated_unscaled().0;
+    let window = env.window.as_mut()?;
+    let mut gles = super::sync_context(
+        &mut env.framework_state.opengles,
+        &mut env.objc,
+        window,
+        env.current_thread,
+    );
+    let gles = gles.as_mut();
+    unsafe {
+        let old_renderbuffer: GLuint = get_int(gles, gles11::RENDERBUFFER_BINDING_OES) as _;
+        let old_framebuffer: GLuint = get_int(gles, gles11::FRAMEBUFFER_BINDING_OES) as _;
+        gles.BindRenderbufferOES(gles11::RENDERBUFFER_OES, renderbuffer);
+        let (width, height) = get_renderbuffer_size(gles);
+        gles.BindRenderbufferOES(gles11::RENDERBUFFER_OES, old_renderbuffer);
+
+        let scale = width as f32 / screen_width as f32;
+        let (x, y, w, h) = rect;
+        let read_x = (x as f32 * scale) as GLint;
+        let read_y = height - ((y + h) as f32 * scale) as GLint;
+        let read_w = (w as f32 * scale) as GLsizei;
+        let read_h = (h as f32 * scale) as GLsizei;
+
+        let mut framebuffer = 0;
+        gles.GenFramebuffersOES(1, &mut framebuffer);
+        gles.BindFramebufferOES(gles11::FRAMEBUFFER_OES, framebuffer);
+        gles.FramebufferRenderbufferOES(
+            gles11::FRAMEBUFFER_OES,
+            gles11::COLOR_ATTACHMENT0_OES,
+            gles11::RENDERBUFFER_OES,
+            renderbuffer,
+        );
+        let mut pixels = vec![0u8; read_w as usize * read_h as usize * 4];
+        gles.ReadPixels(
+            read_x,
+            read_y,
+            read_w,
+            read_h,
+            gles11::RGBA,
+            gles11::UNSIGNED_BYTE,
+            pixels.as_mut_ptr() as *mut _,
+        );
+        gles.DeleteFramebuffersOES(1, &framebuffer);
+        gles.BindFramebufferOES(gles11::FRAMEBUFFER_OES, old_framebuffer);
+        Some(pixels)
+    }
+}

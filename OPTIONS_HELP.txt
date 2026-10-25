@@ -47,6 +47,11 @@ View options:
         textures. Can make pixel art sharper, but may make effects that rely
         on smooth filtering (glows, blurs) look blocky.
 
+    --exit-button=BUTTON
+        (Private Gridrunner fork.) In portrait, this button taps Exit on the
+        pause screen and quits touchHLE from the main menu (the START! screen).
+        It does nothing anywhere else, e.g. --exit-button=B.
+
     --smooth-render-textures
         (Private fork.) With --nearest-textures, leave textures the app draws
         into (render targets, often used for glows and trails) filtered the way
