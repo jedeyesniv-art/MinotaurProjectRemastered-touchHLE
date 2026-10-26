@@ -169,6 +169,10 @@ pub struct Options {
     /// Private fork: this button turns the device between portrait and
     /// landscape.
     pub button_to_rotate: Option<Button>,
+    /// Private fork: see `--rotate-three-ways` in OPTIONS_HELP.txt.
+    pub rotate_three_ways: bool,
+    /// Private fork: see `--upright-landscape-right` in OPTIONS_HELP.txt.
+    pub upright_landscape_right: bool,
     pub dpad_to_touch: Option<(f32, f32, f32, f32)>,
     pub stick_to_touch: Option<(f32, f32, f32, f32)>,
     /// See [crate::window::Window::update_stick_swipe] (private fork).
@@ -256,6 +260,8 @@ impl Default for Options {
             button_to_touch: HashMap::new(),
             landscape_button_to_touch: HashMap::new(),
             button_to_rotate: None,
+            rotate_three_ways: false,
+            upright_landscape_right: false,
             dpad_to_touch: None,
             stick_to_touch: None,
             stick_to_swipe: None,
@@ -489,6 +495,10 @@ impl Options {
             self.landscape_button_to_touch.insert(button, coords);
         } else if let Some(value) = arg.strip_prefix("--button-to-rotate=") {
             self.button_to_rotate = Some(parse_button(value, "--button-to-rotate=")?);
+        } else if arg == "--rotate-three-ways" {
+            self.rotate_three_ways = true;
+        } else if arg == "--upright-landscape-right" {
+            self.upright_landscape_right = true;
         } else if let Some(values) = arg.strip_prefix("--stick-to-touch=") {
             let nums: [f32; 4] = values
                 .split(',')

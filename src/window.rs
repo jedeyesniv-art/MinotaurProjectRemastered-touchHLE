@@ -283,6 +283,8 @@ pub struct Window {
     integer_scaling: bool,
     /// See `--landscape-fill-screen`.
     landscape_fill_screen: bool,
+    /// See `--upright-landscape-right`.
+    upright_landscape_right: bool,
     /// See `--bezel`.
     bezel_image: Option<std::rc::Rc<Image>>,
     /// Private fork: the `--edge-bars-texture` picture, its size in screen
@@ -490,6 +492,7 @@ impl Window {
             window_scale: options.window_scale.get(),
             integer_scaling: options.integer_scaling,
             landscape_fill_screen: options.landscape_fill_screen,
+            upright_landscape_right: options.upright_landscape_right,
             margin_pieces: {
                 let (w, h) = device_family.portrait_size();
                 let (w, h) = (w as f32, h as f32);
@@ -2261,6 +2264,11 @@ impl Window {
             DeviceOrientation::Portrait => Matrix::identity(),
             DeviceOrientation::PortraitUpsideDown => Matrix::z_rotation(PI),
             DeviceOrientation::LandscapeLeft => Matrix::z_rotation(-FRAC_PI_2),
+            // Private fork: --upright-landscape-right shows it (and maps
+            // input) as landscape left, for apps that draw it upside down.
+            DeviceOrientation::LandscapeRight if self.upright_landscape_right => {
+                Matrix::z_rotation(-FRAC_PI_2)
+            }
             DeviceOrientation::LandscapeRight => Matrix::z_rotation(FRAC_PI_2),
         }
     }

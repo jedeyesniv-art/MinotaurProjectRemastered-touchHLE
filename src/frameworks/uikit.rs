@@ -167,16 +167,21 @@ pub fn handle_events(env: &mut Environment) -> Option<Instant> {
             }
             Event::ToggleRotation => {
                 use crate::window::DeviceOrientation;
+                // Private fork: --rotate-three-ways goes on round to
+                // landscape right before coming back.
                 let new_orientation = match env.window().current_rotation() {
                     DeviceOrientation::Portrait | DeviceOrientation::PortraitUpsideDown => {
                         DeviceOrientation::LandscapeLeft
+                    }
+                    DeviceOrientation::LandscapeLeft if env.options.rotate_three_ways => {
+                        DeviceOrientation::LandscapeRight
                     }
                     _ => DeviceOrientation::Portrait,
                 };
                 log!("Turning the device to {:?}.", new_orientation);
                 env.on_parent_stack_in_coroutine(|window, _| window.rotate_device(new_orientation));
                 if env.options.nearest_textures && env.options.smooth_render_textures {
-                    let landscape = new_orientation == DeviceOrientation::LandscapeLeft;
+                    let landscape = new_orientation != DeviceOrientation::Portrait;
                     crate::frameworks::opengles::set_render_textures_crisp(env, landscape);
                 }
                 ui_device::generate_device_orientation_notification(env);

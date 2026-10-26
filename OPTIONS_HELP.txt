@@ -402,6 +402,16 @@ Game controller options:
         the virtual device between portrait and landscape, as if it had been
         physically rotated, e.g. --button-to-rotate=Back.
 
+    --rotate-three-ways
+        (Private Gridrunner fork.) --button-to-rotate goes portrait,
+        landscape left, landscape right, then back to portrait (Gridrunner:
+        the iOS, C64 and VIC-20 versions).
+
+    --upright-landscape-right
+        (Private Gridrunner fork.) Show landscape right the way landscape
+        left is shown, for apps that draw it upside down (Gridrunner's VIC-20
+        version did on the iPad).
+
     --bezel=...
         (Private Gridrunner fork.) A picture (PNG or JPEG, path relative to the
         touchHLE folder) drawn across the whole screen behind the app, like an
