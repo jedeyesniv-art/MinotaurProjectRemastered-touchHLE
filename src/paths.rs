@@ -154,13 +154,33 @@ pub fn user_data_base_path() -> Cow<'static, Path> {
             ));
         }
         // Private fork: a single-file build keeps saves and options next to
-        // itself, wherever it's started from.
+        // itself, wherever it's started from. If it can't write there (e.g.
+        // in Program Files), they go in the user's local app data instead.
         #[cfg(feature = "embedded_game")]
-        if let Some(dir) = std::env::current_exe().ok().and_then(|exe| Some(exe.parent()?.to_owned())) {
-            return Cow::from(dir);
+        {
+            static DIR: std::sync::OnceLock<Option<PathBuf>> = std::sync::OnceLock::new();
+            if let Some(dir) = DIR.get_or_init(single_exe_data_dir) {
+                return Cow::from(dir.as_path());
+            }
         }
         Cow::from(Path::new("."))
     }
+}
+
+/// Private fork: where a single-file build keeps its saves, options and log:
+/// next to the exe if that folder can be written to, otherwise
+/// `%LOCALAPPDATA%\Minotaur Project Remastered`.
+#[cfg(feature = "embedded_game")]
+fn single_exe_data_dir() -> Option<PathBuf> {
+    let exe_dir = std::env::current_exe().ok()?.parent()?.to_owned();
+    let probe = exe_dir.join(".touchHLE_write_test");
+    if std::fs::write(&probe, b"").is_ok() {
+        let _ = std::fs::remove_file(&probe);
+        return Some(exe_dir);
+    }
+    let fallback = PathBuf::from(std::env::var_os("LOCALAPPDATA")?).join("Minotaur Project Remastered");
+    std::fs::create_dir_all(&fallback).ok()?;
+    Some(fallback)
 }
 
 /// Get a URI that can be used to open a file manager or similar for the path

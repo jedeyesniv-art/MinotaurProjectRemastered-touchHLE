@@ -653,6 +653,16 @@ impl Options {
 
 /// Try to get app-specific options from a file.
 ///
+/// Private fork: the line of an options file that holds this app's options
+/// (comments stripped), if it has one.
+pub fn options_line<'a>(text: &'a str, app_id: &str) -> Option<&'a str> {
+    text.lines().find_map(|line| {
+        let line = line.split_once('#').map_or(line, |(rest, _)| rest).trim();
+        let (line_app_id, _) = line.split_once(':')?;
+        (line_app_id.trim() == app_id).then_some(line)
+    })
+}
+
 /// Returns [Ok] if there is no error when reading the file, otherwise [Err].
 /// The [Ok] value is a [Some] with the options if they could be found, or
 /// [None] if no options were found for this app.

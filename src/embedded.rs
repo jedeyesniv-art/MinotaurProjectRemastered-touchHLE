@@ -84,15 +84,63 @@ pub const fn has_game() -> bool {
 }
 
 /// Write the user's options file and the options help next to the executable
-/// if they aren't there yet.
-pub fn write_missing_user_files() {
+/// if they aren't there yet. Several games can share a folder and its options
+/// file: if the file has no line for this game, its built-in line is added.
+pub fn write_missing_user_files(app_id: &str) {
     #[cfg(feature = "embedded_game")]
-    for &(name, bytes) in files::USER_FILES {
-        let path = crate::paths::user_data_base_path().join(name);
-        if !path.exists() {
-            if let Err(e) = std::fs::write(&path, bytes) {
-                echo!("Warning: Couldn't write {}: {}", path.display(), e);
+    {
+        for &(name, bytes) in files::USER_FILES {
+            let path = crate::paths::user_data_base_path().join(name);
+            if !path.exists() {
+                if let Err(e) = std::fs::write(&path, bytes) {
+                    echo!("Warning: Couldn't write {}: {}", path.display(), e);
+                }
             }
         }
+        add_missing_options_line(app_id);
+    }
+    #[cfg(not(feature = "embedded_game"))]
+    let _ = app_id;
+}
+
+/// The built-in options file (with every game's line), in a single-file build.
+pub fn built_in_options() -> Option<&'static [u8]> {
+    #[cfg(feature = "embedded_game")]
+    return files::USER_FILES
+        .iter()
+        .find(|&&(name, _)| name == crate::paths::USER_OPTIONS_FILE)
+        .map(|&(_, bytes)| bytes);
+    #[cfg(not(feature = "embedded_game"))]
+    None
+}
+
+#[cfg(feature = "embedded_game")]
+fn add_missing_options_line(app_id: &str) {
+    use std::io::Write;
+    let path = crate::paths::user_data_base_path().join(crate::paths::USER_OPTIONS_FILE);
+    let Ok(existing) = std::fs::read_to_string(&path) else {
+        return;
+    };
+    if crate::options::options_line(&existing, app_id).is_some() {
+        return;
+    }
+    let built_in = built_in_options().and_then(|bytes| std::str::from_utf8(bytes).ok());
+    let Some(line) = built_in.and_then(|text| crate::options::options_line(text, app_id)) else {
+        return;
+    };
+    let newline = if existing.contains("\r\n") { "\r\n" } else { "\n" };
+    let mut text = String::new();
+    if !existing.is_empty() && !existing.ends_with('\n') {
+        text.push_str(newline);
+    }
+    text.push_str(line);
+    text.push_str(newline);
+    let res = std::fs::OpenOptions::new()
+        .append(true)
+        .open(&path)
+        .and_then(|mut file| file.write_all(text.as_bytes()));
+    match res {
+        Ok(()) => echo!("Added this game's options to {}", path.display()),
+        Err(e) => echo!("Warning: Couldn't add this game's options to {}: {}", path.display(), e),
     }
 }

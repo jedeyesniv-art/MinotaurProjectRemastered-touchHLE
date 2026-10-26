@@ -337,7 +337,7 @@ pub fn main<T: Iterator<Item = String>>(mut args: T) -> Result<(), String> {
         path: P,
         options: &mut options::Options,
         app_id: &str,
-    ) -> Result<(), String> {
+    ) -> Result<bool, String> {
         match options::get_options_from_file(file, app_id) {
             Ok(Some(options_string)) => {
                 echo!(
@@ -352,6 +352,7 @@ pub fn main<T: Iterator<Item = String>>(mut args: T) -> Result<(), String> {
                         Err(err) => return Err(format!("Invalid option {option_arg:?}: {err}")),
                     }
                 }
+                return Ok(true);
             }
             Ok(None) => {
                 echo!("No options found for this app in {}", path);
@@ -360,22 +361,34 @@ pub fn main<T: Iterator<Item = String>>(mut args: T) -> Result<(), String> {
                 echo!("Warning: {}", e);
             }
         }
-        Ok(())
+        Ok(false)
     }
-    embedded::write_missing_user_files();
+    embedded::write_missing_user_files(app_id);
     let default_options_path = paths::DEFAULT_OPTIONS_FILE;
     match paths::ResourceFile::open(default_options_path) {
-        Ok(mut file) => apply_options(file.get(), default_options_path, &mut options, app_id)?,
+        Ok(mut file) => {
+            apply_options(file.get(), default_options_path, &mut options, app_id)?;
+        }
         Err(err) => echo!("Warning: Could not open {}: {}", default_options_path, err),
     }
     let user_options_path = paths::user_data_base_path().join(paths::USER_OPTIONS_FILE);
-    match std::fs::File::open(&user_options_path) {
+    let found = match std::fs::File::open(&user_options_path) {
         Ok(file) => apply_options(file, user_options_path.display(), &mut options, app_id)?,
-        Err(err) => echo!(
-            "Warning: Could not open {}: {}",
-            user_options_path.display(),
-            err
-        ),
+        Err(err) => {
+            echo!(
+                "Warning: Could not open {}: {}",
+                user_options_path.display(),
+                err
+            );
+            false
+        }
+    };
+    // Private fork: a single-file build whose folder has no options for it
+    // (e.g. it can't be written to) uses its built-in ones.
+    if !found {
+        if let Some(built_in) = embedded::built_in_options() {
+            apply_options(built_in, "the built-in options", &mut options, app_id)?;
+        }
     }
     echo!();
 

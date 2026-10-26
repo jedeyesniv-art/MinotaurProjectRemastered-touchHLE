@@ -13,12 +13,13 @@ use std::sync::LazyLock;
 /// All the logging macros print to stderr or (on Android) logcat, but this
 /// is not convenient for users who aren't accustomed to command-line tools or
 /// who don't have access to ADB, so we also write to a log file.
-pub fn get_log_file() -> &'static File {
-    static LOG_FILE: LazyLock<File> = LazyLock::new(|| {
-        File::create(crate::paths::user_data_base_path().join("touchHLE_log.txt")).unwrap()
+/// (Private fork: [None] if it can't be created, rather than a panic.)
+pub fn get_log_file() -> Option<&'static File> {
+    static LOG_FILE: LazyLock<Option<File>> = LazyLock::new(|| {
+        File::create(crate::paths::user_data_base_path().join("touchHLE_log.txt")).ok()
     });
 
-    &LOG_FILE
+    LOG_FILE.as_ref()
 }
 
 /// Prints a log message unconditionally. Use this for errors or warnings.
@@ -79,9 +80,10 @@ macro_rules! echo {
             eprintln!("{}", formatted_str);
 
             use std::io::Write;
-            let mut log_file = $crate::log::get_log_file();
-            let _ = log_file.write_all(formatted_str.as_bytes());
-            let _ = log_file.write_all(b"\n");
+            if let Some(mut log_file) = $crate::log::get_log_file() {
+                let _ = log_file.write_all(formatted_str.as_bytes());
+                let _ = log_file.write_all(b"\n");
+            }
         }
     };
     () => {
@@ -94,7 +96,9 @@ macro_rules! echo {
             eprintln!("");
 
             use std::io::Write;
-            let _ = $crate::log::get_log_file().write_all(b"\n");
+            if let Some(mut log_file) = $crate::log::get_log_file() {
+                let _ = log_file.write_all(b"\n");
+            }
         }
     }
 }
