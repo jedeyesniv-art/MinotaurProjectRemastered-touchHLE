@@ -133,6 +133,16 @@ View options:
         in bright colours, each falling straight down at its own speed. It
         takes the place of --ambient-bars.
 
+    --trim-edges=PIXELS
+        (Private fork, Goat Up 2.) When there are bars beside the picture
+        (fullscreen), blackens PIXELS screen pixels at the picture's left and
+        right edges, hiding a line of garbage some games leave there.
+
+    --starfield-bars=warp
+        (Private fork, Goat Up 2.) The same, but white stars flying out from
+        the picture's centre in 3D, growing and brightening as they come
+        closer, like the game's own background: the bars carry on its flight.
+
     --goat-pad
         (Private fork, Goat Up.) Controller support that follows what's on
         screen, alongside --left-stick-tilt (the game's control type C): A

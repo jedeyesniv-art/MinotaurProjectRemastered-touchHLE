@@ -120,6 +120,8 @@ pub struct Starfield {
     /// Across both bars: x from 0 to twice a bar's width (the right bar's
     /// stars are the ones past one width).
     stars: Vec<Star>,
+    /// `--starfield-bars=warp`.
+    warp_stars: Vec<WarpStar>,
     rng: u32,
     last_frame: Option<std::time::Instant>,
     /// The soft dot (0 = not made yet).
@@ -152,6 +154,32 @@ const STAR_COLOURS: [[f32; 3]; 9] = [
     [0.95, 0.98, 1.0],
 ];
 
+/// Private fork, `--starfield-bars=warp`: a star of Goat Up 2's background,
+/// in 3D around the picture's centre. Measured by tracking the game's stars
+/// (game select, 20 frames a second): they fly straight out from the
+/// picture's centre with true perspective (1/r falls linearly in time on
+/// each track), appear about 14 s before they'd reach the viewer, spread
+/// over about +-1400 points-seconds sideways, white, about 42 in the
+/// picture at once, growing from 3.7 to 12 points and from 63% to full
+/// brightness as they come closer. This model gives the same speed at each
+/// distance from the centre (e.g. 2.4, 4.8 and 7.6 points a frame at 250,
+/// 350 and 450 points; the game 2.4, 4.5 and 7.4) and the same spread.
+struct WarpStar {
+    /// Sideways, in points times seconds: on screen it's `x / z` points from
+    /// the picture's centre.
+    x: f32,
+    y: f32,
+    /// Seconds until it would reach the viewer.
+    z: f32,
+}
+
+/// The game's density (45, about 42 in the picture) left the bars sparse
+/// (about 2.4 stars between them); the user asked for half as many again,
+/// twice (about 5.5).
+const WARP_STARS: usize = 102;
+const WARP_FAR: f32 = 14.0;
+const WARP_SPREAD: f32 = 1400.0;
+
 impl Starfield {
     /// 0 to 1 (xorshift).
     fn random(&mut self) -> f32 {
@@ -162,6 +190,14 @@ impl Starfield {
         self.rng ^= self.rng >> 17;
         self.rng ^= self.rng << 5;
         (self.rng >> 8) as f32 / (1 << 24) as f32
+    }
+
+    /// A new warp star, far away (or anywhere on the way, to start).
+    fn new_warp_star(&mut self, anywhere: bool) -> WarpStar {
+        let x = (self.random() * 2.0 - 1.0) * WARP_SPREAD;
+        let y = (self.random() * 2.0 - 1.0) * WARP_SPREAD;
+        let z = if anywhere { 0.1 + self.random() * (WARP_FAR - 0.1) } else { WARP_FAR };
+        WarpStar { x, y, z }
     }
 
     /// A new star somewhere across `width` points, at height `y`.
@@ -180,6 +216,8 @@ pub struct StarfieldArgs<'a> {
     pub state: &'a mut Starfield,
     /// The picture's height in screen points.
     pub points_high: u32,
+    /// `--starfield-bars=warp`.
+    pub warp: bool,
 }
 
 const GLOW_VERTEX_SHADER: &str = "
@@ -281,7 +319,9 @@ pub struct Ambient<'a> {
     pub screen_size: (u32, u32),
 }
 
-/// Private fork: `frame_size` is the size in pixels of the frame texture.
+/// Private fork: `frame_size` is the size in pixels of the frame texture;
+/// `trim_edges` (`--trim-edges`) is how many screen pixels to blacken at the
+/// picture's left and right edges when there are bars beside it.
 #[allow(clippy::too_many_arguments)]
 pub unsafe fn present_frame(
     gles: &mut dyn GLES,
@@ -294,6 +334,7 @@ pub unsafe fn present_frame(
     ambient: Option<Ambient<'_>>,
     edge_bars: Option<EdgeBarsArgs<'_>>,
     starfield: Option<StarfieldArgs<'_>>,
+    trim_edges: u32,
 ) {
     // While this is a generic utility, it is closely tied to
     // crate::frameworks::opengles::eagl::present_renderbuffer, which handles
@@ -357,6 +398,21 @@ pub unsafe fn present_frame(
     gles.DrawArrays(gles11::TRIANGLES, 0, 6);
     // clean this up so we don't need to worry about it in e.g. Core Animation
     gles.LoadIdentity();
+    if trim_edges > 0 && viewport.0 > 0 {
+        // Private fork, --trim-edges: some games leave a line of garbage in
+        // their frame's outermost columns (Goat Up 2); paint them black, the
+        // bars' colour.
+        let trim = trim_edges.min(viewport.2 / 2);
+        gles.Disable(gles11::TEXTURE_2D);
+        gles.Color4f(0.0, 0.0, 0.0, 1.0);
+        for x in [viewport.0, viewport.0 + viewport.2 - trim] {
+            gles.Viewport(x as _, viewport.1 as _, trim as _, viewport.3 as _);
+            gles.DrawArrays(gles11::TRIANGLES, 0, 6);
+        }
+        gles.Color4f(1.0, 1.0, 1.0, 1.0);
+        gles.Enable(gles11::TEXTURE_2D);
+        gles.Viewport(viewport.0 as _, viewport.1 as _, viewport.2 as _, viewport.3 as _);
+    }
     if let Some(edge_bars) = edge_bars {
         draw_edge_bars(gles, edge_bars, viewport, &vertices);
     }
@@ -661,7 +717,7 @@ unsafe fn draw_starfield(
     use gles11::types::*;
     const DOT_SIZE: usize = 32;
 
-    let StarfieldArgs { state, points_high } = starfield;
+    let StarfieldArgs { state, points_high, warp } = starfield;
     let (vx, vy, vw, vh) = (viewport.0 as i32, viewport.1 as i32, viewport.2 as i32, viewport.3 as i32);
     if vx <= 0 || vh <= 0 {
         return;
@@ -674,21 +730,62 @@ unsafe fn draw_starfield(
     let now = std::time::Instant::now();
     let dt = state.last_frame.map_or(0.0, |last| (now - last).as_secs_f32().min(0.1));
     state.last_frame = Some(now);
-    let count = (STAR_DENSITY * 2.0 * bar_wide * high).round() as usize;
-    state.stars.retain(|star| star.x < 2.0 * bar_wide);
-    state.stars.truncate(count);
-    while state.stars.len() < count {
-        let y = state.random() * high;
-        let star = state.new_star(2.0 * bar_wide, y);
-        state.stars.push(star);
-    }
-    for i in 0..state.stars.len() {
-        let star = &mut state.stars[i];
-        star.y += star.speed * dt;
-        if star.y - star.size * STAR_TALLNESS / 2.0 > high {
-            let mut star = state.new_star(2.0 * bar_wide, 0.0);
-            star.y = -star.size * STAR_TALLNESS / 2.0;
-            state.stars[i] = star;
+    // The dots to draw: (bar, centre x within the bar, centre y, half width,
+    // half height, colour).
+    let mut dots: Vec<(usize, f32, f32, f32, f32, [f32; 3])> = Vec::new();
+    if warp {
+        let half_picture = vw as f32 * points_per_pixel / 2.0;
+        let (reach_x, reach_y) = (half_picture + bar_wide + 20.0, high / 2.0 + 20.0);
+        while state.warp_stars.len() < WARP_STARS {
+            let star = state.new_warp_star(true);
+            state.warp_stars.push(star);
+        }
+        for i in 0..state.warp_stars.len() {
+            let star = &mut state.warp_stars[i];
+            star.z -= dt;
+            if star.z <= 0.05
+                || (star.x / star.z).abs() > reach_x
+                || (star.y / star.z).abs() > reach_y
+            {
+                state.warp_stars[i] = state.new_warp_star(false);
+                continue;
+            }
+            let (sx, sy) = (star.x / star.z, star.y / star.z);
+            // Drawn sizes are measured ones / 0.8: the measurements counted
+            // pixels above 60 of 255, out to 0.8 of the dot's radius.
+            let half = (30.0 / star.z).clamp(4.5, 17.0) / 2.0;
+            let brightness = (1.0 - (star.z - 4.0) * 0.055).clamp(0.6, 1.0);
+            let (side, x) = if sx < 0.0 {
+                (0, sx + half_picture + bar_wide)
+            } else {
+                (1, sx - half_picture)
+            };
+            if (-half..bar_wide + half).contains(&x) {
+                dots.push((side, x, high / 2.0 + sy, half, half, [brightness; 3]));
+            }
+        }
+    } else {
+        let count = (STAR_DENSITY * 2.0 * bar_wide * high).round() as usize;
+        state.stars.retain(|star| star.x < 2.0 * bar_wide);
+        state.stars.truncate(count);
+        while state.stars.len() < count {
+            let y = state.random() * high;
+            let star = state.new_star(2.0 * bar_wide, y);
+            state.stars.push(star);
+        }
+        for i in 0..state.stars.len() {
+            let star = &mut state.stars[i];
+            star.y += star.speed * dt;
+            if star.y - star.size * STAR_TALLNESS / 2.0 > high {
+                let mut star = state.new_star(2.0 * bar_wide, 0.0);
+                star.y = -star.size * STAR_TALLNESS / 2.0;
+                state.stars[i] = star;
+            }
+        }
+        for star in &state.stars {
+            let side = (star.x >= bar_wide) as usize;
+            let (hw, hh) = (star.size / 2.0, star.size * STAR_TALLNESS / 2.0);
+            dots.push((side, star.x - side as f32 * bar_wide, star.y, hw, hh, star.colour));
         }
     }
 
@@ -739,16 +836,13 @@ unsafe fn draw_starfield(
     gles.TexCoordPointer(2, gles11::FLOAT, 0, tex_coords.as_ptr() as *const GLvoid);
     for (side, x) in [0, vx + vw].into_iter().enumerate() {
         gles.Viewport(x, vy, vx, vh);
-        let first = side as f32 * bar_wide;
-        for star in state.stars.iter().filter(|s| s.x >= first && s.x < first + bar_wide) {
-            let (cx, cy) = (star.x - first, star.y);
-            let (hw, hh) = (star.size / 2.0, star.size * STAR_TALLNESS / 2.0);
+        for &(_, cx, cy, hw, hh, colour) in dots.iter().filter(|d| d.0 == side) {
             let mut quad = *vertices;
             for i in (0..quad.len()).step_by(2) {
                 quad[i] = (cx + quad[i] * hw) / bar_wide * 2.0 - 1.0;
                 quad[i + 1] = 1.0 - (cy - quad[i + 1] * hh) / high * 2.0;
             }
-            let [r, g, b] = star.colour;
+            let [r, g, b] = colour;
             gles.Color4f(r, g, b, 1.0);
             gles.VertexPointer(2, gles11::FLOAT, 0, quad.as_ptr() as *const GLvoid);
             gles.DrawArrays(gles11::TRIANGLES, 0, 6);

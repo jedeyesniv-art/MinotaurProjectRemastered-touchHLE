@@ -116,6 +116,11 @@ pub struct Options {
     pub ambient_bars: Option<[f32; 4]>,
     /// Private fork: see `--starfield-bars` in OPTIONS_HELP.txt.
     pub starfield_bars: bool,
+    /// Private fork: `--starfield-bars=warp`, stars flying out from the
+    /// picture's centre instead of falling.
+    pub starfield_warp: bool,
+    /// Private fork: see `--trim-edges` in OPTIONS_HELP.txt (screen pixels).
+    pub trim_edges: u32,
     /// Private fork: see `--audio-resampler` in OPTIONS_HELP.txt: OpenAL
     /// Soft's `AL_SOURCE_RESAMPLER_SOFT` index.
     pub audio_resampler: Option<i32>,
@@ -222,6 +227,8 @@ impl Default for Options {
             tilt_on_left_stick: false,
             ambient_bars: None,
             starfield_bars: false,
+            starfield_warp: false,
+            trim_edges: 0,
             audio_resampler: None,
             volume: None,
             perf_log: None,
@@ -390,6 +397,13 @@ impl Options {
             self.volume = Some(volume);
         } else if arg == "--starfield-bars" {
             self.starfield_bars = true;
+        } else if let Some(value) = arg.strip_prefix("--trim-edges=") {
+            self.trim_edges = value
+                .parse()
+                .map_err(|_| "--trim-edges= needs a whole number of pixels".to_string())?;
+        } else if arg == "--starfield-bars=warp" {
+            self.starfield_bars = true;
+            self.starfield_warp = true;
         } else if arg == "--goat-pad" {
             self.goat_pad = true;
         } else if arg == "--goat2-pad" {

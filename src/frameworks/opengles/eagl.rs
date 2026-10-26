@@ -905,7 +905,9 @@ unsafe fn present_renderbuffer(env: &mut Environment, crop: [f32; 4]) {
         starfield_bars.then_some(StarfieldArgs {
             state: &mut starfield,
             points_high: view_height_points,
+            warp: env.options.starfield_warp,
         }),
+        env.options.trim_edges,
     );
     if crate::perf_log::enabled() {
         crate::perf_log::present_end(present_started.elapsed());

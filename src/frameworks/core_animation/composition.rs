@@ -405,6 +405,7 @@ pub fn recomposite_if_necessary(env: &mut Environment, force: bool) -> Option<In
             ambient,
             /* edge_bars: */ None,
             /* starfield: */ None,
+            /* trim_edges: */ 0,
         );
     }
     std::mem::drop(gles);

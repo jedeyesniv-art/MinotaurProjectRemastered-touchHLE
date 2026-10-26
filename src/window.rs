@@ -1908,6 +1908,7 @@ impl Window {
                 /* ambient: */ None,
                 /* edge_bars: */ None,
                 /* starfield: */ None,
+                /* trim_edges: */ 0,
             );
 
             gl_ctx.DeleteTextures(1, &texture);
