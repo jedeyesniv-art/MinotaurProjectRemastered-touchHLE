@@ -198,6 +198,7 @@ fn AudioUnitGetProperty(
 }
 
 fn AudioOutputUnitStart(env: &mut Environment, ci: AudioUnit) -> OSStatus {
+    let resampler = env.options.audio_resampler;
     let context = env
         .framework_state
         .audio_toolbox
@@ -206,6 +207,10 @@ fn AudioOutputUnitStart(env: &mut Environment, ci: AudioUnit) -> OSStatus {
     let mut source: ALuint = 0;
     unsafe {
         context.GenSources(1, &mut source);
+        // Private fork: --audio-resampler (AL_SOURCE_RESAMPLER_SOFT).
+        if let Some(resampler) = resampler {
+            context.Sourcei(source, 0x1212, resampler);
+        }
         context.SourcePlay(source);
         assert_eq!(context.GetError(), 0);
     }

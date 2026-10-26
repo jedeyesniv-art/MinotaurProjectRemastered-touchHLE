@@ -155,6 +155,9 @@ pub enum ScreenAction {
     Tap((f32, f32)),
     /// Anything else, e.g. playing: do nothing.
     Nothing,
+    /// Nothing yet, but look again each frame for a moment: the button may
+    /// be fading in (Super Ox Wars' EXIT GAME sign pulses).
+    Wait,
 }
 
 /// Fraction of a block of RGBA pixels that pass a test.
@@ -229,8 +232,11 @@ fn five_a_day_exit_button_action(env: &mut Environment) -> ScreenAction {
     }
 }
 
-/// Super Ox Wars: the EXIT GAME sign (grey, measured 0.28 on the pause screen
-/// and at most 0.01 elsewhere) means pause, so tap it. The START button (grey,
+/// Super Ox Wars: the EXIT GAME sign means pause, so tap it. It's a
+/// see-through grey that pulses, so it's found as pale (any tint, as over the
+/// purple floor), measured 0.12-0.79 on the demo's and user's pause screens
+/// and at most 0.05 (the ship) elsewhere; at its faintest (0.02) the press
+/// waits for it. The START button (grey,
 /// 0.45 on the menu, at most 0.01 elsewhere) or the attract logo (blue 0.58
 /// and red 0.77, at most 0.05 elsewhere) means quit. Anything else, e.g.
 /// playing or the other attract pages, does nothing.
@@ -240,7 +246,11 @@ fn super_ox_wars_exit_button_action(env: &mut Environment) -> ScreenAction {
     let grey = |r: u8, g: u8, b: u8| r.abs_diff(g) < 14 && g.abs_diff(b) < 14 && (70..=170).contains(&r);
     let blue = |r: u8, g: u8, b: u8| b > 150 && r < 90 && g < 120;
     let red = |r: u8, g: u8, b: u8| r > 170 && g < 80 && b < 80;
-    let exit = read_screen_pixels(env, SOW_EXIT_SIGN).map(|p| fraction(&p, grey));
+    let pale = |r: u8, g: u8, b: u8| {
+        let (hi, lo) = (r.max(g).max(b), r.min(g).min(b));
+        (70..=235).contains(&hi) && lo as f32 >= 0.6 * hi as f32
+    };
+    let exit = read_screen_pixels(env, SOW_EXIT_SIGN).map(|p| fraction(&p, pale));
     let start = read_screen_pixels(env, SOW_START_BUTTON).map(|p| fraction(&p, grey));
     let logo_blue = read_screen_pixels(env, SOW_LOGO_BLUE).map(|p| fraction(&p, blue));
     let logo_red = read_screen_pixels(env, SOW_LOGO_RED).map(|p| fraction(&p, red));
@@ -248,14 +258,14 @@ fn super_ox_wars_exit_button_action(env: &mut Environment) -> ScreenAction {
         "Exit button: EXIT GAME {:?}, START {:?}, logo blue {:?} red {:?}",
         exit, start, logo_blue, logo_red
     );
-    if exit.is_some_and(|f| f > 0.15) {
+    if exit.is_some_and(|f| f > 0.08) {
         ScreenAction::Tap(SOW_EXIT_TAP)
     } else if start.is_some_and(|f| f > 0.25)
         || (logo_blue.is_some_and(|f| f > 0.3) && logo_red.is_some_and(|f| f > 0.3))
     {
         ScreenAction::Quit
     } else {
-        ScreenAction::Nothing
+        ScreenAction::Wait
     }
 }
 

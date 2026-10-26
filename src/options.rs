@@ -114,6 +114,9 @@ pub struct Options {
     pub ambient_bars: Option<[f32; 4]>,
     /// Private fork: see `--starfield-bars` in OPTIONS_HELP.txt.
     pub starfield_bars: bool,
+    /// Private fork: see `--audio-resampler` in OPTIONS_HELP.txt: OpenAL
+    /// Soft's `AL_SOURCE_RESAMPLER_SOFT` index.
+    pub audio_resampler: Option<i32>,
     /// Private fork: see `--perf-log` in OPTIONS_HELP.txt.
     pub perf_log: Option<String>,
     /// Private fork: see `--screenshot-every=` in OPTIONS_HELP.txt.
@@ -214,6 +217,7 @@ impl Default for Options {
             tilt_on_left_stick: false,
             ambient_bars: None,
             starfield_bars: false,
+            audio_resampler: None,
             perf_log: None,
             screenshot_every: None,
             hide_cursor: 2.0,
@@ -363,6 +367,15 @@ impl Options {
                 .extend(value.split(',').filter(|p| !p.is_empty()).map(String::from));
         } else if arg == "--minos-pad" {
             self.minos_pad = true;
+        } else if let Some(value) = arg.strip_prefix("--audio-resampler=") {
+            // In OpenAL Soft's order (core/mixer/defs.h).
+            const NAMES: [&str; 7] =
+                ["point", "linear", "cubic", "fast_bsinc12", "bsinc12", "fast_bsinc24", "bsinc24"];
+            let index = NAMES
+                .iter()
+                .position(|name| name.eq_ignore_ascii_case(value))
+                .ok_or_else(|| format!("--audio-resampler= must be one of {}", NAMES.join(", ")))?;
+            self.audio_resampler = Some(index as i32);
         } else if arg == "--starfield-bars" {
             self.starfield_bars = true;
         } else if arg == "--goat-pad" {

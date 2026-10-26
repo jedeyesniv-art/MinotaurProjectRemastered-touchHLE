@@ -228,27 +228,52 @@ pub fn handle_text_input(env: &mut Environment, text_event: crate::window::TextI
 /// Private fork: the --exit-button and --retry-button. Each press looks at the
 /// screen (see [crate::gridrunner::screen_button_action]) and taps a button
 /// there, quits, or does nothing; the tap lifts when the button is released.
-fn screen_button(env: &mut Environment, which: crate::gridrunner::ScreenButton, down: bool) {
-    use crate::gridrunner::{screen_button_action, ScreenAction, ScreenButton};
-    use crate::window::{Event, FingerId};
+/// How long a [ScreenAction::Wait] keeps looking.
+const SCREEN_BUTTON_WAIT: std::time::Duration = std::time::Duration::from_millis(600);
+/// Frames a tap lasts when the button was let go while waiting.
+const SCREEN_BUTTON_LATE_TAP_FRAMES: u32 = 6;
+
+struct ScreenButtonWait {
+    which: crate::gridrunner::ScreenButton,
+    until: std::time::Instant,
+    released: bool,
+}
+
+thread_local! {
+    /// Where each screen button is touching, while it is.
+    static SCREEN_BUTTON_TOUCHING: std::cell::RefCell<std::collections::HashMap<u8, (f32, f32)>> =
+        std::cell::RefCell::new(std::collections::HashMap::new());
+    static SCREEN_BUTTON_WAITING: std::cell::RefCell<Option<ScreenButtonWait>> =
+        const { std::cell::RefCell::new(None) };
+    /// A late tap to lift after some frames: button, frames left.
+    static SCREEN_BUTTON_LATE_TAP: std::cell::RefCell<Option<(crate::gridrunner::ScreenButton, u32)>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+fn screen_button_finger(env: &Environment, which: crate::gridrunner::ScreenButton) -> crate::window::FingerId {
+    use crate::gridrunner::ScreenButton;
     let button = match which {
         ScreenButton::Exit => env.options.exit_button,
         ScreenButton::Retry => env.options.retry_button,
     };
-    let finger = FingerId::ButtonToTouch(button.unwrap());
-    thread_local! {
-        /// Where each screen button is touching, while it is.
-        static TOUCHING: std::cell::RefCell<std::collections::HashMap<u8, (f32, f32)>> =
-            std::cell::RefCell::new(std::collections::HashMap::new());
+    crate::window::FingerId::ButtonToTouch(button.unwrap())
+}
+
+/// Lets go of a screen button's touch, if it's touching.
+fn screen_button_lift(env: &mut Environment, which: crate::gridrunner::ScreenButton) {
+    use crate::window::Event;
+    let finger = screen_button_finger(env, which);
+    if let Some(at) = SCREEN_BUTTON_TOUCHING.with(|t| t.borrow_mut().remove(&(which as u8))) {
+        let touch = std::collections::HashMap::from([(finger, at)]);
+        ui_touch::handle_event(env, Event::TouchesUp(touch));
     }
-    let key = which as u8;
-    if !down {
-        if let Some(at) = TOUCHING.with(|t| t.borrow_mut().remove(&key)) {
-            let touch = std::collections::HashMap::from([(finger, at)]);
-            ui_touch::handle_event(env, Event::TouchesUp(touch));
-        }
-        return;
-    }
+}
+
+/// Acts on what [crate::gridrunner::screen_button_action] says; returns
+/// whether it said to wait.
+fn screen_button_act(env: &mut Environment, which: crate::gridrunner::ScreenButton) -> bool {
+    use crate::gridrunner::{screen_button_action, ScreenAction};
+    use crate::window::Event;
     match screen_button_action(env, which) {
         ScreenAction::Quit => {
             echo!("Exit button pressed on the main menu, exiting.");
@@ -256,10 +281,63 @@ fn screen_button(env: &mut Environment, which: crate::gridrunner::ScreenButton, 
         }
         ScreenAction::Tap(at) => {
             log!("{:?} button: tapping {:?}.", which, at);
-            TOUCHING.with(|t| t.borrow_mut().insert(key, at));
-            let touch = std::collections::HashMap::from([(finger, at)]);
+            SCREEN_BUTTON_TOUCHING.with(|t| t.borrow_mut().insert(which as u8, at));
+            let touch = std::collections::HashMap::from([(screen_button_finger(env, which), at)]);
             ui_touch::handle_event(env, Event::TouchesDown(touch));
         }
         ScreenAction::Nothing => (),
+        ScreenAction::Wait => return true,
+    }
+    false
+}
+
+fn screen_button(env: &mut Environment, which: crate::gridrunner::ScreenButton, down: bool) {
+    if !down {
+        let waiting = SCREEN_BUTTON_WAITING.with(|w| {
+            let mut w = w.borrow_mut();
+            w.as_mut().map(|w| w.released = true).is_some()
+        });
+        if !waiting {
+            screen_button_lift(env, which);
+        }
+        return;
+    }
+    if screen_button_act(env, which) {
+        let until = std::time::Instant::now() + SCREEN_BUTTON_WAIT;
+        SCREEN_BUTTON_WAITING.with(|w| *w.borrow_mut() = Some(ScreenButtonWait { which, until, released: false }));
+    }
+}
+
+/// Private fork: called each frame while an `--exit-button` is set, for a
+/// screen button that's waiting ([crate::gridrunner::ScreenAction::Wait]) or
+/// a late tap to lift.
+pub fn screen_button_frame(env: &mut Environment) {
+    let lift = SCREEN_BUTTON_LATE_TAP.with(|l| {
+        let mut l = l.borrow_mut();
+        match l.as_mut() {
+            Some((_, 0)) => l.take().map(|(which, _)| which),
+            Some((_, frames)) => {
+                *frames -= 1;
+                None
+            }
+            None => None,
+        }
+    });
+    if let Some(which) = lift {
+        screen_button_lift(env, which);
+    }
+    let Some((which, until, released)) =
+        SCREEN_BUTTON_WAITING.with(|w| w.borrow().as_ref().map(|w| (w.which, w.until, w.released)))
+    else {
+        return;
+    };
+    SCREEN_BUTTON_WAITING.with(|w| *w.borrow_mut() = None);
+    if std::time::Instant::now() > until {
+        return;
+    }
+    if screen_button_act(env, which) {
+        SCREEN_BUTTON_WAITING.with(|w| *w.borrow_mut() = Some(ScreenButtonWait { which, until, released }));
+    } else if released {
+        SCREEN_BUTTON_LATE_TAP.with(|l| *l.borrow_mut() = Some((which, SCREEN_BUTTON_LATE_TAP_FRAMES)));
     }
 }

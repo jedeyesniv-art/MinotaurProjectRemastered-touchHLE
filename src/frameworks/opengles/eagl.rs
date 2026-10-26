@@ -319,6 +319,9 @@ pub const CLASSES: ClassExports = objc_classes! {
     if env.options.minos_pad {
         crate::minos::frame(env);
     }
+    if env.options.exit_button.is_some() {
+        crate::frameworks::uikit::screen_button_frame(env);
+    }
     if let Some(points) = env.options.edge_bars {
         sample_edge_bar_colours(env, points);
     }

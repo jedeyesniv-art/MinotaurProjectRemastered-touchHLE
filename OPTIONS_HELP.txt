@@ -115,6 +115,13 @@ View options:
         play the right trigger thrusts too: fully pulled it holds thrust, and
         part pulled it pulses it, longer pulses the further it's pulled.
 
+    --audio-resampler=NAME
+        (Private fork.) How an Audio Unit's sound (a game's own mixer, e.g.
+        Super Ox Wars at 11025 Hz) is converted to the output rate: point,
+        linear (OpenAL Soft's default), cubic, fast_bsinc12, bsinc12,
+        fast_bsinc24 or bsinc24. Low-rate audio sounds gritty with linear;
+        bsinc24 filters it cleanly, as the iPad's own converter does.
+
     --starfield-bars
         (Private fork, Goat Up.) Fills the bars beside the picture with
         falling stars on black, like the game's own background: soft dim dots
