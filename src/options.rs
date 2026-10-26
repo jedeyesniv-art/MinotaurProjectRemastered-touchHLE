@@ -31,6 +31,8 @@ pub enum Button {
     LeftShoulder,
     /// Private fork.
     Back,
+    /// Private fork (Gridrunner's cabinet turn).
+    RightShoulder,
 }
 
 /// `--ambient-bars` defaults: brightness, smoothing seconds, brightness and
@@ -50,6 +52,7 @@ fn parse_button(name: &str, option: &str) -> Result<Button, String> {
         "Y" => Ok(Button::Y),
         "LeftShoulder" => Ok(Button::LeftShoulder),
         "Back" => Ok(Button::Back),
+        "RightShoulder" => Ok(Button::RightShoulder),
         _ => Err(format!("Invalid button for {option}")),
     }
 }
@@ -307,6 +310,23 @@ impl Options {
 
         if arg == "--fullscreen" {
             self.fullscreen = true;
+        // Private fork: the launcher's settings, given on the command line
+        // (so after the options file) to undo parts of a game's options.
+        } else if arg == "--windowed" {
+            self.fullscreen = false;
+        } else if arg == "--plain-bars" {
+            self.bezel = None;
+            self.move_to_margin.clear();
+            self.ambient_bars = None;
+            self.edge_bars = None;
+            self.edge_bars_texture = None;
+            self.starfield_bars = false;
+            self.starfield_warp = false;
+        } else if arg == "--no-enhancements" {
+            self.sharp_scaling = false;
+            self.nearest_present = false;
+            self.nearest_textures = false;
+            self.smooth_render_textures = false;
         } else if let Some(value) = arg.strip_prefix("--window-scale=") {
             self.window_scale = value
                 .parse()

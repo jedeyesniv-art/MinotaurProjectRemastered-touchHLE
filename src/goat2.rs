@@ -114,12 +114,12 @@ enum Action {
 fn action(screen: Screen, button: Button) -> Action {
     match (screen, button) {
         (Screen::Title, Button::A) => Action::Tap(TITLE_TAP),
-        (Screen::Title | Screen::GameSelect, Button::B) => Action::Quit,
-        (Screen::LevelSelect, Button::B) => Action::Tap(BACK_TAP),
+        (Screen::Title | Screen::GameSelect, Button::Back) => Action::Quit,
+        (Screen::LevelSelect, Button::B | Button::Back) => Action::Tap(BACK_TAP),
         (Screen::Play, Button::A) => Action::Tap(JUMP_TAP),
         (Screen::Play | Screen::Pause, Button::Start) => Action::Tap(PAUSE_TAP),
         (Screen::Pause, Button::Y) => Action::Tap(RESET_TAP),
-        (Screen::Pause, Button::B) => Action::Tap(EXIT_TAP),
+        (Screen::Pause, Button::Back) => Action::Tap(EXIT_TAP),
         (Screen::Pause, Button::X) => Action::Tap(CONTROL_TYPE_TAP),
         _ => Action::Nothing,
     }

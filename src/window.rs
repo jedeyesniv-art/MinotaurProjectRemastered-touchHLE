@@ -658,6 +658,9 @@ impl Window {
                     Some(crate::options::Button::LeftShoulder)
                 }
                 sdl2::controller::Button::Back => Some(crate::options::Button::Back),
+                sdl2::controller::Button::RightShoulder => {
+                    Some(crate::options::Button::RightShoulder)
+                }
                 _ => None,
             }
         }
@@ -1145,13 +1148,13 @@ impl Window {
                     repeat: false,
                     ..
                 } if options.deflex_pad || options.minos_pad || options.goat_pad || options.goat2_pad || options.rescue_pad => {
-                    Event::PadInput(PadInput::Button(sdl2::controller::Button::B), true)
+                    Event::PadInput(PadInput::Button(sdl2::controller::Button::Back), true)
                 }
                 E::KeyUp {
                     keycode: Some(sdl2::keyboard::Keycode::Escape),
                     ..
                 } if options.deflex_pad || options.minos_pad || options.goat_pad || options.goat2_pad || options.rescue_pad => {
-                    Event::PadInput(PadInput::Button(sdl2::controller::Button::B), false)
+                    Event::PadInput(PadInput::Button(sdl2::controller::Button::Back), false)
                 }
                 E::KeyDown {
                     keycode: Some(sdl2::keyboard::Keycode::Escape),
@@ -1757,7 +1760,9 @@ impl Window {
             x += convert_axis(controller.axis(x_axis), options.deadzone);
             y += convert_axis(controller.axis(y_axis), options.deadzone);
             pressed |= controller.button(button1);
-            pressed |= controller.button(button2);
+            if left || options.button_to_rotate != Some(crate::options::Button::RightShoulder) {
+                pressed |= controller.button(button2);
+            }
         }
         let (x, y) = (x.clamp(-1.0, 1.0), y.clamp(-1.0, 1.0));
 

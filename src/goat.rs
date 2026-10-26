@@ -100,13 +100,13 @@ fn action(screen: Screen, button: Button) -> Action {
         (Screen::Menu, Button::A) => Action::Tap(START_TAP),
         (Screen::Menu, Button::X) => Action::Tap(CONTROL_TYPE_TAP),
         (Screen::Menu, Button::Y) => Action::Tap(MENU_MORE_INFO_TAP),
-        (Screen::Menu, Button::B) => Action::Quit,
+        (Screen::Menu, Button::Back) => Action::Quit,
         (Screen::Info, Button::A) => Action::Tap(INFO_MORE_INFO_TAP),
-        (Screen::Info, Button::B) => Action::Tap(INFO_MAIN_MENU_TAP),
+        (Screen::Info, Button::B | Button::Back) => Action::Tap(INFO_MAIN_MENU_TAP),
         (Screen::Play, Button::A) => Action::Tap(JUMP_TAP),
         (Screen::Play, Button::Start) => Action::Tap(PAUSE_TAP),
         (Screen::Pause, Button::Start) => Action::Tap(RESUME_TAP),
-        (Screen::Pause, Button::B) => Action::Tap(QUIT_TAP),
+        (Screen::Pause, Button::Back) => Action::Tap(QUIT_TAP),
         _ => Action::Nothing,
     }
 }

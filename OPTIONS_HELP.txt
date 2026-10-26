@@ -204,8 +204,24 @@ View options:
     --exit-button=BUTTON
         (Private Gridrunner fork.) In portrait, this button taps Exit on the
         pause screen and quits touchHLE from the main menu (the START! screen).
-        It does nothing anywhere else, e.g. --exit-button=B. The Esc key does
-        the same.
+        It does nothing anywhere else, e.g. --exit-button=Back. The Esc key does
+        the same. (The pad modules quit with Back and Esc too.)
+
+    --windowed
+        (Private fork.) Undo --fullscreen: start in a window. The launcher's
+        "Run windowed" setting gives it on the command line, after the options
+        file.
+
+    --plain-bars
+        (Private fork.) Undo every style for the bars beside the picture
+        (--bezel, --move-to-margin, --ambient-bars, --edge-bars,
+        --edge-bars-texture, --starfield-bars): plain black. The launcher's
+        "Display bezel: off".
+
+    --no-enhancements
+        (Private fork.) Undo --sharp-scaling, --nearest-present,
+        --nearest-textures and --smooth-render-textures: the games' picture as
+        it was. The launcher's "High detail: off".
 
     --smooth-render-textures
         (Private fork.) With --nearest-textures, leave textures the app draws
@@ -304,7 +320,7 @@ Game controller options:
         part of the screen.
 
         This is three parts separated by commas: the name of a button (DPadLeft,
-        DPadUp, DPadRight, DPadDown, Start, LeftShoulder or Xbox-like
+        DPadUp, DPadRight, DPadDown, Start, LeftShoulder, Back, RightShoulder or Xbox-like
         A, B, X or Y), the X co-ordinate and the Y co-ordinate.
         The co-ordinates are floating-point (decimal) numbers. 0,0 is the
         top-left corner. The bottom-right corner is 320,480 if the app is in

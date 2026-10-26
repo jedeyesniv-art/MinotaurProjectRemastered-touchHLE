@@ -116,16 +116,16 @@ fn action(screen: Screen, input: PadInput) -> Action {
     };
     match (screen, button) {
         (Screen::Title, Some(Button::A)) => Action::Tap(TITLE_TAP),
-        (Screen::Title | Screen::LevelSelect, Some(Button::B)) => Action::Quit,
+        (Screen::Title | Screen::LevelSelect, Some(Button::Back)) => Action::Quit,
         (Screen::LevelSelect, Some(Button::X)) => Action::Tap(END_NEXT_OR_PLAY),
         (Screen::Play, Some(Button::Start)) => Action::Tap(PAUSE_ICON),
         (Screen::Play, _) if left_paddle => Action::Tap(LEFT_PADDLE),
         (Screen::Play, _) if right_paddle => Action::Tap(RIGHT_PADDLE),
         (Screen::Pause, Some(Button::Start)) => Action::Tap(RESUME),
         (Screen::Pause, Some(Button::X)) => Action::Tap(PAUSE_RETRY),
-        (Screen::Pause, Some(Button::B)) => Action::Tap(PAUSE_QUIT),
+        (Screen::Pause, Some(Button::Back)) => Action::Tap(PAUSE_QUIT),
         (Screen::EndOfLevel, Some(Button::X)) => Action::Tap(END_RETRY),
-        (Screen::EndOfLevel, Some(Button::B)) => Action::Tap(END_QUIT),
+        (Screen::EndOfLevel, Some(Button::Back)) => Action::Tap(END_QUIT),
         (Screen::EndOfLevel, Some(Button::A)) => Action::Tap(END_NEXT_OR_PLAY),
         _ => Action::Nothing,
     }

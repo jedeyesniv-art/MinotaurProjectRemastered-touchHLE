@@ -116,9 +116,9 @@ fn action(screen: Screen, button: Button) -> Action {
     match (screen, button) {
         (Screen::Info, Button::A) => Action::Tap(MORE_TAP),
         (_, Button::A) => Action::ICade,
-        (Screen::Title | Screen::Menu, Button::B) => Action::Quit,
-        (Screen::Info, Button::B) => Action::Tap(INFO_OR_DONE_TAP),
-        (Screen::Pause, Button::B) => Action::Tap(QUIT_TAP),
+        (Screen::Title | Screen::Menu, Button::Back) => Action::Quit,
+        (Screen::Info, Button::B | Button::Back) => Action::Tap(INFO_OR_DONE_TAP),
+        (Screen::Pause, Button::Back) => Action::Tap(QUIT_TAP),
         (Screen::Play, Button::Start) => Action::Tap(PAWS_TAP),
         (Screen::Pause, Button::Start) => Action::Tap(UNPAWS_TAP),
         (Screen::Menu, Button::X) => Action::Tap(INFO_OR_DONE_TAP),
