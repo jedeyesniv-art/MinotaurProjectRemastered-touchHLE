@@ -78,7 +78,10 @@ fn recognise(env: &mut Environment) -> Screen {
     if left > 0.4 && middle > 0.3 {
         return Screen::EndOfLevel;
     }
-    if right > 0.5 && left < 0.05 && middle < 0.05 {
+    // PLAY pulses: on its dark frames only about half of it passes `blue`,
+    // so it gets a looser test (0.94 on the user's screenshot, 0.66 strict).
+    let play_blue = |r: u8, g: u8, b: u8| b > 110 && b > r.saturating_add(50) && b > g.saturating_add(70);
+    if score(env, BOTTOM_RIGHT, play_blue) > 0.5 && left < 0.05 && middle < 0.05 {
         return Screen::LevelSelect;
     }
     if score(env, CORNER_LEFT, blue) > 0.06 && score(env, CORNER_RIGHT, blue) > 0.06 {
@@ -88,6 +91,36 @@ fn recognise(env: &mut Environment) -> Screen {
         return Screen::Title;
     }
     Screen::Other
+}
+
+/// [recognise], but a screen recognised in the last [SCREEN_HOLD] stays
+/// that screen while the check sees nothing it knows, until another screen
+/// is recognised. The game strobes and pulses (PLAY, the field behind the
+/// paddle buttons), so one frame that fails its colour test can't drop the
+/// pointer mid-drag, stop Back quitting or lose a paddle press.
+fn recognise_held(env: &mut Environment) -> Screen {
+    let screen = recognise(env);
+    let now = std::time::Instant::now();
+    LAST_SCREEN.with(|last| {
+        let mut last = last.borrow_mut();
+        match (screen, *last) {
+            (Screen::Other, Some((held, t))) if now - t < SCREEN_HOLD => held,
+            (Screen::Other, _) => {
+                *last = None;
+                screen
+            }
+            _ => {
+                *last = Some((screen, now));
+                screen
+            }
+        }
+    })
+}
+
+const SCREEN_HOLD: std::time::Duration = std::time::Duration::from_millis(1500);
+
+thread_local! {
+    static LAST_SCREEN: std::cell::RefCell<Option<(Screen, std::time::Instant)>> = const { std::cell::RefCell::new(None) };
 }
 
 enum Action {
@@ -155,7 +188,7 @@ pub fn handle_input(env: &mut Environment, input: PadInput, down: bool) {
         }
         return;
     }
-    let screen = recognise(env);
+    let screen = recognise_held(env);
     log!("Deflex pad: {:?} on {:?}", input, screen);
     match action(screen, input) {
         Action::Tap(point) => {
@@ -183,6 +216,6 @@ pub fn frame(env: &mut Environment) {
     if n % 10 != 0 {
         return;
     }
-    let on_level_select = recognise(env) == Screen::LevelSelect;
+    let on_level_select = recognise_held(env) == Screen::LevelSelect;
     env.window_mut().set_pad_cursor_enabled(on_level_select);
 }
