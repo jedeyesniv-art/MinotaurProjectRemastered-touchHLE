@@ -22,7 +22,7 @@ use crate::frameworks::uikit::ui_device::{
     UIDeviceOrientationLandscapeLeft, UIDeviceOrientationLandscapeRight,
     UIDeviceOrientationPortraitUpsideDown,
 };
-use crate::objc::{id, msg, msg_class, msg_super, nil, objc_classes, ClassExports};
+use crate::objc::{id, msg, msg_class, msg_super, nil, objc_classes, release, retain, ClassExports};
 
 #[derive(Default)]
 pub struct State {
@@ -33,6 +33,9 @@ pub struct State {
     /// The most recent window which received `makeKeyAndVisible` message.
     /// Non-retaining!
     pub key_window: Option<id>,
+    /// Each window's `rootViewController` (window, controller). Retaining
+    /// the controller.
+    pub root_view_controllers: Vec<(id, id)>,
 }
 
 pub const CLASSES: ClassExports = objc_classes! {
@@ -128,6 +131,35 @@ pub const CLASSES: ClassExports = objc_classes! {
 
     // TODO: post UIWindowDidBecomeVisibleNotification
     () = msg![env; this setHidden:false];
+}
+
+- (id)rootViewController {
+    env.framework_state.uikit.ui_view.ui_window.root_view_controllers
+        .iter().find(|&&(w, _)| w == this).map_or(nil, |&(_, vc)| vc)
+}
+- (())setRootViewController:(id)vc { // UIViewController*
+    let old: id = msg![env; this rootViewController];
+    if old == vc {
+        return;
+    }
+    retain(env, vc);
+    let list = &mut env.framework_state.uikit.ui_view.ui_window.root_view_controllers;
+    list.retain(|&(w, _)| w != this);
+    if vc != nil {
+        list.push((this, vc));
+    }
+    if old != nil {
+        let old_view: id = msg![env; old view];
+        () = msg![env; old_view removeFromSuperview];
+        release(env, old);
+    }
+    if vc != nil {
+        // As on iOS, the controller's view fills the window.
+        let view: id = msg![env; vc view];
+        let frame: CGRect = msg![env; this bounds];
+        () = msg![env; view setFrame:frame];
+        () = msg![env; this addSubview:view];
+    }
 }
 
 // We only model the single main screen

@@ -254,7 +254,6 @@ pub fn printf_inner<const NS_LOG: bool, F: Fn(&Mem, GuestUSize) -> u8>(
                 }
             }
             b'd' | b'i' | b'u' => {
-                assert!(!left_justified);
                 // Note: on 32-bit system int and long are i32,
                 // so single length_modifier is ignored (but not double one!)
                 let int: i64 = if specifier == b'u' {
@@ -292,7 +291,12 @@ pub fn printf_inner<const NS_LOG: bool, F: Fn(&Mem, GuestUSize) -> u8>(
                     format!("{int}")
                 };
 
-                if pad_width > 0 {
+                if pad_width > 0 && left_justified {
+                    // '-' pads with spaces on the right (and overrides '0').
+                    assert!(!prepend_sign);
+                    let pad_width = pad_width as usize;
+                    write!(&mut res, "{int_with_precision:<pad_width$}").unwrap();
+                } else if pad_width > 0 {
                     let pad_width = pad_width as usize;
                     if pad_char == '0' && precision.is_none() {
                         if prepend_sign {

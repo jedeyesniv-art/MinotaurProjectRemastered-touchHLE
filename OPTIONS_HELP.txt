@@ -122,6 +122,11 @@ View options:
         fast_bsinc24 or bsinc24. Low-rate audio sounds gritty with linear;
         bsinc24 filters it cleanly, as the iPad's own converter does.
 
+    --volume=FACTOR
+        (Private fork.) Scales an Audio Unit's sound (a game's own mixer) by
+        FACTOR, from 0 to 1: e.g. --volume=0.5 halves it (Goat Up 2's mix is
+        very loud).
+
     --starfield-bars
         (Private fork, Goat Up.) Fills the bars beside the picture with
         falling stars on black, like the game's own background: soft dim dots
@@ -136,6 +141,15 @@ View options:
         quits from the menu, presses MAIN MENU on the info pages and QUIT when
         paused; Start pauses and unpauses; on the info pages A presses MORE
         INFO.
+
+    --goat2-pad
+        (Private fork, Goat Up 2.) Controller support that follows what's on
+        screen, alongside --left-stick-tilt (the tilt control type): in play
+        A jumps (held for a long jump); on the title A begins and B (or Esc)
+        quits; on the menus the left stick moves a pointer and A touches with
+        it, B quits from the game select and goes BACK from the level select;
+        Start pauses and unpauses; when paused Y is RESET, B is Exit and X
+        changes the control type.
 
     --left-stick-tilt[=DEGREES]
         (Private fork.) The same as --right-stick-tilt, on the left stick.

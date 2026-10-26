@@ -103,6 +103,8 @@ pub struct Options {
     pub minos_pad: bool,
     /// Private fork: see `--goat-pad` in OPTIONS_HELP.txt.
     pub goat_pad: bool,
+    /// Private fork: see `--goat2-pad` in OPTIONS_HELP.txt.
+    pub goat2_pad: bool,
     /// Private fork: see `--right-stick-tilt` in OPTIONS_HELP.txt: how far
     /// the steering wheel turns each way, in degrees.
     pub right_stick_tilt: Option<f32>,
@@ -117,6 +119,8 @@ pub struct Options {
     /// Private fork: see `--audio-resampler` in OPTIONS_HELP.txt: OpenAL
     /// Soft's `AL_SOURCE_RESAMPLER_SOFT` index.
     pub audio_resampler: Option<i32>,
+    /// Private fork: see `--volume` in OPTIONS_HELP.txt.
+    pub volume: Option<f32>,
     /// Private fork: see `--perf-log` in OPTIONS_HELP.txt.
     pub perf_log: Option<String>,
     /// Private fork: see `--screenshot-every=` in OPTIONS_HELP.txt.
@@ -213,11 +217,13 @@ impl Default for Options {
             edge_bars_texture: None,
             minos_pad: false,
             goat_pad: false,
+            goat2_pad: false,
             right_stick_tilt: None,
             tilt_on_left_stick: false,
             ambient_bars: None,
             starfield_bars: false,
             audio_resampler: None,
+            volume: None,
             perf_log: None,
             screenshot_every: None,
             hide_cursor: 2.0,
@@ -376,10 +382,18 @@ impl Options {
                 .position(|name| name.eq_ignore_ascii_case(value))
                 .ok_or_else(|| format!("--audio-resampler= must be one of {}", NAMES.join(", ")))?;
             self.audio_resampler = Some(index as i32);
+        } else if let Some(value) = arg.strip_prefix("--volume=") {
+            let volume: f32 = value.parse().map_err(|_| "--volume= needs a number".to_string())?;
+            if !(0.0..=1.0).contains(&volume) {
+                return Err("--volume= must be between 0 and 1".to_string());
+            }
+            self.volume = Some(volume);
         } else if arg == "--starfield-bars" {
             self.starfield_bars = true;
         } else if arg == "--goat-pad" {
             self.goat_pad = true;
+        } else if arg == "--goat2-pad" {
+            self.goat2_pad = true;
         } else if arg == "--left-stick-tilt" {
             self.right_stick_tilt = Some(40.0);
             self.tilt_on_left_stick = true;

@@ -750,13 +750,20 @@ impl Window {
                 }
             }
 
-            // Private fork: --minos-pad and --goat-pad take the controller's
-            // buttons (the sticks stay as they are).
-            if options.minos_pad || options.goat_pad {
+            // Private fork: --minos-pad, --goat-pad and --goat2-pad take the
+            // controller's buttons (the sticks stay as they are). With
+            // --goat2-pad, A presses the menu pointer while it's shown.
+            if options.minos_pad || options.goat_pad || options.goat2_pad {
                 if let E::ControllerButtonDown { button, .. } | E::ControllerButtonUp { button, .. } =
                     &event
                 {
                     let down = matches!(event, E::ControllerButtonDown { .. });
+                    if *button == sdl2::controller::Button::A
+                        && (self.pad_cursor_enabled || self.pad_cursor_pressed)
+                    {
+                        self.pad_cursor_press(down);
+                        continue;
+                    }
                     self.event_queue.push_back(Event::PadInput(PadInput::Button(*button), down));
                     continue;
                 }
@@ -1129,13 +1136,13 @@ impl Window {
                     keycode: Some(sdl2::keyboard::Keycode::Escape),
                     repeat: false,
                     ..
-                } if options.deflex_pad || options.minos_pad || options.goat_pad => {
+                } if options.deflex_pad || options.minos_pad || options.goat_pad || options.goat2_pad => {
                     Event::PadInput(PadInput::Button(sdl2::controller::Button::B), true)
                 }
                 E::KeyUp {
                     keycode: Some(sdl2::keyboard::Keycode::Escape),
                     ..
-                } if options.deflex_pad || options.minos_pad || options.goat_pad => {
+                } if options.deflex_pad || options.minos_pad || options.goat_pad || options.goat2_pad => {
                     Event::PadInput(PadInput::Button(sdl2::controller::Button::B), false)
                 }
                 E::KeyDown {
@@ -1189,7 +1196,7 @@ impl Window {
             }
         }
 
-        if options.deflex_pad {
+        if options.deflex_pad || options.goat2_pad {
             self.update_pad_cursor(options);
             return;
         }

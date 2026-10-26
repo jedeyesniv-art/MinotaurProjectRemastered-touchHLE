@@ -157,6 +157,8 @@ pub fn handle_events(env: &mut Environment) -> Option<Instant> {
                     crate::minos::handle_input(env, input, down)
                 } else if env.options.goat_pad {
                     crate::goat::handle_input(env, input, down)
+                } else if env.options.goat2_pad {
+                    crate::goat2::handle_input(env, input, down)
                 } else {
                     crate::deflex::handle_input(env, input, down)
                 }

@@ -23,3 +23,5 @@ uk.co.llamasoft.minos: --device-family=ipad --dpi-aware --sharp-scaling --stick-
 
 # Goat Up
 uk.co.llamasoft.Goat: --device-family=ipad --dpi-aware --sharp-scaling --fake-classes=OF --goat-pad --left-stick-tilt=20 --deadzone=0.12 --starfield-bars
+# Goat Up 2
+co.uk.llamasoft.Grunt: --device-family=ipad --dpi-aware --sharp-scaling --audio-resampler=bsinc24 --volume=0.5 --goat2-pad --left-stick-tilt=20 --deadzone=0.12 --starfield-bars

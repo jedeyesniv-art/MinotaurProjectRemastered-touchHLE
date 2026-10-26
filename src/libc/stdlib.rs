@@ -21,7 +21,8 @@ pub mod qsort;
 
 #[derive(Default)]
 pub struct State {
-    rand: u32,
+    /// `rand()`'s context. `None` until `srand()`, which acts as seed 1.
+    rand: Option<u32>,
     random: u32,
     arc4random: u32,
     fcvt_buf: Option<MutPtr<u8>>,
@@ -195,7 +196,7 @@ fn prng(state: u32) -> u32 {
 const RAND_MAX: i32 = i32::MAX;
 
 fn srand(env: &mut Environment, seed: u32) {
-    env.libc_state.stdlib.rand = seed;
+    env.libc_state.stdlib.rand = Some(seed);
 }
 
 // BSD's rand() seed function — we just use host system time,
@@ -206,18 +207,33 @@ fn sranddev(env: &mut Environment) {
         .unwrap()
         .as_nanos();
     let seed = (time ^ (time >> 32)) as u32;
-    env.libc_state.stdlib.rand = seed;
+    env.libc_state.stdlib.rand = Some(seed);
+}
+
+/// One step of Darwin's `rand()` (FreeBSD's `do_rand()` without weak
+/// seeding: Park-Miller "minimal standard", with the context divided as an
+/// unsigned long). Apps rely on the exact sequence: Goat Up 2 unscrambles
+/// its built-in levels with `srand(constant)` and `rand()`.
+fn darwin_rand_step(ctx: u32) -> u32 {
+    let ctx = if ctx == 0 { 123459876 } else { ctx };
+    let hi = (ctx / 127773) as i32;
+    let lo = (ctx % 127773) as i32;
+    let mut x = (16807 * lo).wrapping_sub(2836 * hi);
+    if x < 0 {
+        x = x.wrapping_add(0x7fffffff);
+    }
+    x as u32
 }
 
 fn rand(env: &mut Environment) -> i32 {
-    env.libc_state.stdlib.rand = prng(env.libc_state.stdlib.rand);
-    (env.libc_state.stdlib.rand as i32) & RAND_MAX
+    let ctx = darwin_rand_step(env.libc_state.stdlib.rand.unwrap_or(1));
+    env.libc_state.stdlib.rand = Some(ctx);
+    (ctx % (RAND_MAX as u32 + 1)) as i32
 }
 fn rand_r(env: &mut Environment, seed_ptr: MutPtr<u32>) -> i32 {
-    let mut seed = env.mem.read(seed_ptr);
-    seed = prng(seed);
-    env.mem.write(seed_ptr, seed);
-    (seed as i32) & RAND_MAX
+    let ctx = darwin_rand_step(env.mem.read(seed_ptr));
+    env.mem.write(seed_ptr, ctx);
+    (ctx % (RAND_MAX as u32 + 1)) as i32
 }
 
 // BSD's "better" random number generator, with an implementation that is not
