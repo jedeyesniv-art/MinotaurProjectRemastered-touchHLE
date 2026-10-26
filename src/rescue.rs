@@ -599,5 +599,15 @@ fn finger_frame(env: &mut Environment) {
             f.down = true;
         });
         finger_send(env, 0);
+        // The game zeroes a new touch's drag vector, and until it moves
+        // steers the ship by atan2 of that zero: towards the right, so a
+        // slow push left swung the ship round for a few frames. Make the
+        // first move at once.
+        STATE.with(|s| {
+            let f = &mut s.borrow_mut().finger;
+            f.x += dx * TOUCH_STEP;
+            f.y += dy * TOUCH_STEP;
+        });
+        finger_send(env, 1);
     }
 }
