@@ -112,6 +112,8 @@ pub struct Options {
     /// Private fork: see `--ambient-bars` in OPTIONS_HELP.txt: brightness,
     /// smoothing seconds, brightness and saturation beside the picture.
     pub ambient_bars: Option<[f32; 4]>,
+    /// Private fork: see `--starfield-bars` in OPTIONS_HELP.txt.
+    pub starfield_bars: bool,
     /// Private fork: see `--perf-log` in OPTIONS_HELP.txt.
     pub perf_log: Option<String>,
     /// Private fork: see `--screenshot-every=` in OPTIONS_HELP.txt.
@@ -211,6 +213,7 @@ impl Default for Options {
             right_stick_tilt: None,
             tilt_on_left_stick: false,
             ambient_bars: None,
+            starfield_bars: false,
             perf_log: None,
             screenshot_every: None,
             hide_cursor: 2.0,
@@ -360,6 +363,8 @@ impl Options {
                 .extend(value.split(',').filter(|p| !p.is_empty()).map(String::from));
         } else if arg == "--minos-pad" {
             self.minos_pad = true;
+        } else if arg == "--starfield-bars" {
+            self.starfield_bars = true;
         } else if arg == "--goat-pad" {
             self.goat_pad = true;
         } else if arg == "--left-stick-tilt" {

@@ -16,7 +16,7 @@ use crate::gles::gles11_raw as gles11; // constants only
 use crate::gles::gles11_raw::types::*;
 use crate::gles::present::{
     present_frame, upload_bezel, upload_pattern, Ambient, AmbientGlow, Bezel, EdgeBars,
-    EdgeBarsArgs, EdgePattern, FpsCounter, SharpScaler,
+    EdgeBarsArgs, EdgePattern, FpsCounter, SharpScaler, Starfield, StarfieldArgs,
 };
 use crate::gles::{create_gles1_ctx, create_gles2_ctx, gles1_on_gl2, GLESContext, GLES};
 use crate::mem::MutPtr;
@@ -80,6 +80,8 @@ pub(super) struct EAGLContextHostObject {
     edge_bars: EdgeBars,
     /// Private fork: the `--edge-bars-texture` texture, once uploaded.
     edge_bars_texture: Option<GLuint>,
+    /// Private fork: see `--starfield-bars`.
+    starfield: Starfield,
 }
 impl HostObject for EAGLContextHostObject {}
 
@@ -102,6 +104,7 @@ pub const CLASSES: ClassExports = objc_classes! {
         ambient_glow: AmbientGlow::default(),
         edge_bars: EdgeBars::default(),
         edge_bars_texture: None,
+        starfield: Starfield::default(),
     });
     env.objc.alloc_object(this, host_object, &mut env.mem)
 }
@@ -674,8 +677,19 @@ unsafe fn present_renderbuffer(env: &mut Environment, crop: [f32; 4]) {
     let edge_bars_pattern = env.window().edge_bars_texture();
     let edge_bars_scroll = env.window().edge_bar_scroll();
     let view_height_points = env.window().size_unrotated_unscaled().1;
-    // The edge bars cover the whole of the bars, so the glow isn't needed.
-    let ambient_bars = env.options.ambient_bars.filter(|_| edge_bars.is_none());
+    let starfield_bars = env.options.starfield_bars;
+    let mut starfield = std::mem::take(
+        &mut env
+            .objc
+            .borrow_mut::<EAGLContextHostObject>(current_ctx)
+            .starfield,
+    );
+    // The edge bars and starfield cover the whole of the bars, so the glow
+    // isn't needed.
+    let ambient_bars = env
+        .options
+        .ambient_bars
+        .filter(|_| edge_bars.is_none() && !starfield_bars);
     let screen_size = env.window.as_ref().unwrap().drawable_size();
 
     let gles_ctx = super::get_thread_context(
@@ -882,6 +896,10 @@ unsafe fn present_renderbuffer(env: &mut Environment, crop: [f32; 4]) {
             target,
             pattern: edge_bars_pattern,
         }),
+        starfield_bars.then_some(StarfieldArgs {
+            state: &mut starfield,
+            points_high: view_height_points,
+        }),
     );
     if crate::perf_log::enabled() {
         crate::perf_log::present_end(present_started.elapsed());
@@ -977,6 +995,7 @@ unsafe fn present_renderbuffer(env: &mut Environment, crop: [f32; 4]) {
     host_object.ambient_glow = ambient_glow;
     host_object.edge_bars = edge_bars_state;
     host_object.edge_bars_texture = edge_bars_texture;
+    host_object.starfield = starfield;
 }
 
 /// Private fork: read a rectangle (x, y, width, height in screen points,

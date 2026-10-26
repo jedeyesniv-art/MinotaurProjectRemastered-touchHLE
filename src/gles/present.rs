@@ -108,6 +108,80 @@ pub struct EdgePattern {
     pub scroll: f32,
 }
 
+/// Private fork, `--starfield-bars`: falling stars on black in the bars, like
+/// Goat Up's own background, kept per context. Measured on the game's menu
+/// and demo (in screen points, the picture being 1024 high): about 33 stars
+/// per 768x1024, soft dots 3-11 high and a little taller than wide, dim
+/// (40-55% at their brightest), in saturated colours; each falls straight
+/// down at its own steady speed, 37-320 points a second, whatever the game is
+/// doing (its screen doesn't scroll).
+#[derive(Default)]
+pub struct Starfield {
+    /// Across both bars: x from 0 to twice a bar's width (the right bar's
+    /// stars are the ones past one width).
+    stars: Vec<Star>,
+    rng: u32,
+    last_frame: Option<std::time::Instant>,
+    /// The soft dot (0 = not made yet).
+    texture: u32,
+}
+
+struct Star {
+    x: f32,
+    y: f32,
+    /// Points a second.
+    speed: f32,
+    /// Width in points (the height is `STAR_TALLNESS` times it).
+    size: f32,
+    /// Colour times brightness.
+    colour: [f32; 3],
+}
+
+/// Stars per square point.
+const STAR_DENSITY: f32 = 33.0 / (768.0 * 1024.0);
+const STAR_TALLNESS: f32 = 1.3;
+const STAR_COLOURS: [[f32; 3]; 9] = [
+    [1.0, 0.0, 0.0],
+    [1.0, 0.5, 0.0],
+    [1.0, 1.0, 0.0],
+    [0.5, 1.0, 0.0],
+    [0.0, 1.0, 0.5],
+    [0.0, 1.0, 1.0],
+    [0.0, 0.5, 1.0],
+    [0.0, 0.0, 1.0],
+    [0.95, 0.98, 1.0],
+];
+
+impl Starfield {
+    /// 0 to 1 (xorshift).
+    fn random(&mut self) -> f32 {
+        if self.rng == 0 {
+            self.rng = 0x9E37_79B9;
+        }
+        self.rng ^= self.rng << 13;
+        self.rng ^= self.rng >> 17;
+        self.rng ^= self.rng << 5;
+        (self.rng >> 8) as f32 / (1 << 24) as f32
+    }
+
+    /// A new star somewhere across `width` points, at height `y`.
+    fn new_star(&mut self, width: f32, y: f32) -> Star {
+        let x = self.random() * width;
+        let speed = 37.0 + 283.0 * self.random().powi(2);
+        let size = 5.0 + 9.0 * self.random();
+        let brightness = 0.2 + 0.35 * self.random();
+        let colour = STAR_COLOURS[(self.random() * STAR_COLOURS.len() as f32) as usize % STAR_COLOURS.len()];
+        Star { x, y, speed, size, colour: colour.map(|c| c * brightness) }
+    }
+}
+
+/// Private fork: what [present_frame] needs to draw the `--starfield-bars`.
+pub struct StarfieldArgs<'a> {
+    pub state: &'a mut Starfield,
+    /// The picture's height in screen points.
+    pub points_high: u32,
+}
+
 const GLOW_VERTEX_SHADER: &str = "
 attribute vec2 a_pos;
 varying vec2 v_uv;
@@ -219,6 +293,7 @@ pub unsafe fn present_frame(
     sharp: Option<&mut SharpScaler>,
     ambient: Option<Ambient<'_>>,
     edge_bars: Option<EdgeBarsArgs<'_>>,
+    starfield: Option<StarfieldArgs<'_>>,
 ) {
     // While this is a generic utility, it is closely tied to
     // crate::frameworks::opengles::eagl::present_renderbuffer, which handles
@@ -284,6 +359,9 @@ pub unsafe fn present_frame(
     gles.LoadIdentity();
     if let Some(edge_bars) = edge_bars {
         draw_edge_bars(gles, edge_bars, viewport, &vertices);
+    }
+    if let Some(starfield) = starfield {
+        draw_starfield(gles, starfield, viewport, &vertices);
     }
     if crate::perf_log::enabled() {
         crate::perf_log::present_stage();
@@ -567,6 +645,120 @@ unsafe fn draw_edge_bars(
     gles.BindTexture(gles11::TEXTURE_2D, old_texture as GLuint);
     gles.Enable(gles11::TEXTURE_2D);
     gles.EnableClientState(gles11::TEXTURE_COORD_ARRAY);
+    gles.Viewport(vx, vy, vw, vh);
+}
+
+/// Private fork, `--starfield-bars`: move the stars on and draw them, added
+/// onto the black bars, each bar in its own viewport so none spill onto the
+/// picture. A star that falls off the bottom comes back at the top as a new
+/// one. The viewport is left as the picture's.
+unsafe fn draw_starfield(
+    gles: &mut dyn GLES,
+    starfield: StarfieldArgs<'_>,
+    viewport: (u32, u32, u32, u32),
+    vertices: &[f32; 12],
+) {
+    use gles11::types::*;
+    const DOT_SIZE: usize = 32;
+
+    let StarfieldArgs { state, points_high } = starfield;
+    let (vx, vy, vw, vh) = (viewport.0 as i32, viewport.1 as i32, viewport.2 as i32, viewport.3 as i32);
+    if vx <= 0 || vh <= 0 {
+        return;
+    }
+    let high = points_high.max(1) as f32;
+    let points_per_pixel = high / vh as f32;
+    let bar_wide = vx as f32 * points_per_pixel;
+
+    // Keep the density as the bars change size (e.g. leaving the window).
+    let now = std::time::Instant::now();
+    let dt = state.last_frame.map_or(0.0, |last| (now - last).as_secs_f32().min(0.1));
+    state.last_frame = Some(now);
+    let count = (STAR_DENSITY * 2.0 * bar_wide * high).round() as usize;
+    state.stars.retain(|star| star.x < 2.0 * bar_wide);
+    state.stars.truncate(count);
+    while state.stars.len() < count {
+        let y = state.random() * high;
+        let star = state.new_star(2.0 * bar_wide, y);
+        state.stars.push(star);
+    }
+    for i in 0..state.stars.len() {
+        let star = &mut state.stars[i];
+        star.y += star.speed * dt;
+        if star.y - star.size * STAR_TALLNESS / 2.0 > high {
+            let mut star = state.new_star(2.0 * bar_wide, 0.0);
+            star.y = -star.size * STAR_TALLNESS / 2.0;
+            state.stars[i] = star;
+        }
+    }
+
+    let mut old_texture: GLint = 0;
+    gles.GetIntegerv(gles11::TEXTURE_BINDING_2D, &mut old_texture);
+    let mut old_env_mode: GLint = 0;
+    gles.GetTexEnviv(gles11::TEXTURE_ENV, gles11::TEXTURE_ENV_MODE, &mut old_env_mode);
+    if state.texture == 0 {
+        // Like the game's star sprite: solid in the middle, fading evenly to
+        // nothing at the edge.
+        let mut pixels = Vec::with_capacity(DOT_SIZE * DOT_SIZE * 4);
+        for y in 0..DOT_SIZE {
+            for x in 0..DOT_SIZE {
+                let d = |i: usize| (i as f32 + 0.5) / DOT_SIZE as f32 * 2.0 - 1.0;
+                let r = (d(x).powi(2) + d(y).powi(2)).sqrt();
+                let v = (((1.0 - r) / 0.85).clamp(0.0, 1.0) * 255.0) as u8;
+                pixels.extend_from_slice(&[v, v, v, v]);
+            }
+        }
+        gles.GenTextures(1, &mut state.texture);
+        gles.BindTexture(gles11::TEXTURE_2D, state.texture);
+        gles.TexImage2D(
+            gles11::TEXTURE_2D,
+            0,
+            gles11::RGBA as _,
+            DOT_SIZE as _,
+            DOT_SIZE as _,
+            0,
+            gles11::RGBA,
+            gles11::UNSIGNED_BYTE,
+            pixels.as_ptr() as *const _,
+        );
+        for param in [gles11::TEXTURE_MIN_FILTER, gles11::TEXTURE_MAG_FILTER] {
+            gles.TexParameteri(gles11::TEXTURE_2D, param, gles11::LINEAR as _);
+        }
+        for param in [gles11::TEXTURE_WRAP_S, gles11::TEXTURE_WRAP_T] {
+            gles.TexParameteri(gles11::TEXTURE_2D, param, gles11::CLAMP_TO_EDGE as _);
+        }
+    }
+    gles.BindTexture(gles11::TEXTURE_2D, state.texture);
+    gles.TexEnvi(gles11::TEXTURE_ENV, gles11::TEXTURE_ENV_MODE, gles11::MODULATE as _);
+    gles.Enable(gles11::TEXTURE_2D);
+    gles.Enable(gles11::BLEND);
+    gles.BlendFunc(gles11::ONE, gles11::ONE);
+    gles.EnableClientState(gles11::VERTEX_ARRAY);
+    gles.EnableClientState(gles11::TEXTURE_COORD_ARRAY);
+    let tex_coords: [f32; 12] = [0.0, 0.0, 0.0, 1.0, 1.0, 0.0, 1.0, 0.0, 0.0, 1.0, 1.0, 1.0];
+    gles.TexCoordPointer(2, gles11::FLOAT, 0, tex_coords.as_ptr() as *const GLvoid);
+    for (side, x) in [0, vx + vw].into_iter().enumerate() {
+        gles.Viewport(x, vy, vx, vh);
+        let first = side as f32 * bar_wide;
+        for star in state.stars.iter().filter(|s| s.x >= first && s.x < first + bar_wide) {
+            let (cx, cy) = (star.x - first, star.y);
+            let (hw, hh) = (star.size / 2.0, star.size * STAR_TALLNESS / 2.0);
+            let mut quad = *vertices;
+            for i in (0..quad.len()).step_by(2) {
+                quad[i] = (cx + quad[i] * hw) / bar_wide * 2.0 - 1.0;
+                quad[i + 1] = 1.0 - (cy - quad[i + 1] * hh) / high * 2.0;
+            }
+            let [r, g, b] = star.colour;
+            gles.Color4f(r, g, b, 1.0);
+            gles.VertexPointer(2, gles11::FLOAT, 0, quad.as_ptr() as *const GLvoid);
+            gles.DrawArrays(gles11::TRIANGLES, 0, 6);
+        }
+    }
+    gles.Disable(gles11::BLEND);
+    gles.Color4f(1.0, 1.0, 1.0, 1.0);
+    gles.VertexPointer(2, gles11::FLOAT, 0, vertices.as_ptr() as *const GLvoid);
+    gles.TexEnvi(gles11::TEXTURE_ENV, gles11::TEXTURE_ENV_MODE, old_env_mode);
+    gles.BindTexture(gles11::TEXTURE_2D, old_texture as GLuint);
     gles.Viewport(vx, vy, vw, vh);
 }
 

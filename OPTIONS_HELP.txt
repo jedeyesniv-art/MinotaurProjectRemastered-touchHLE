@@ -115,6 +115,12 @@ View options:
         play the right trigger thrusts too: fully pulled it holds thrust, and
         part pulled it pulses it, longer pulses the further it's pulled.
 
+    --starfield-bars
+        (Private fork, Goat Up.) Fills the bars beside the picture with
+        falling stars on black, like the game's own background: soft dim dots
+        in bright colours, each falling straight down at its own speed. It
+        takes the place of --ambient-bars.
+
     --goat-pad
         (Private fork, Goat Up.) Controller support that follows what's on
         screen, alongside --left-stick-tilt (the game's control type C): A

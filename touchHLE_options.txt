@@ -22,4 +22,4 @@ uk.co.llamasoft.sf: --device-family=ipad --dpi-aware --sharp-scaling --stick-to-
 uk.co.llamasoft.minos: --device-family=ipad --dpi-aware --sharp-scaling --stick-to-icade --deadzone=0.18 --minos-pad --right-stick-tilt --fake-classes=OF --edge-bars=10 --edge-bars-texture=minos_wall.png,2.6 --ambient-bars
 
 # Goat Up
-uk.co.llamasoft.Goat: --device-family=ipad --dpi-aware --sharp-scaling --fake-classes=OF --goat-pad --left-stick-tilt=20 --deadzone=0.12 --ambient-bars
+uk.co.llamasoft.Goat: --device-family=ipad --dpi-aware --sharp-scaling --fake-classes=OF --goat-pad --left-stick-tilt=20 --deadzone=0.12 --starfield-bars
