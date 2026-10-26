@@ -101,9 +101,14 @@ pub struct Options {
     pub fake_classes: Vec<String>,
     /// Private fork: see `--minos-pad` in OPTIONS_HELP.txt.
     pub minos_pad: bool,
+    /// Private fork: see `--goat-pad` in OPTIONS_HELP.txt.
+    pub goat_pad: bool,
     /// Private fork: see `--right-stick-tilt` in OPTIONS_HELP.txt: how far
     /// the steering wheel turns each way, in degrees.
     pub right_stick_tilt: Option<f32>,
+    /// Private fork: `--left-stick-tilt` puts the `right_stick_tilt` steering
+    /// wheel on the left stick instead.
+    pub tilt_on_left_stick: bool,
     /// Private fork: see `--ambient-bars` in OPTIONS_HELP.txt: brightness,
     /// smoothing seconds, brightness and saturation beside the picture.
     pub ambient_bars: Option<[f32; 4]>,
@@ -202,7 +207,9 @@ impl Default for Options {
             edge_bars: None,
             edge_bars_texture: None,
             minos_pad: false,
+            goat_pad: false,
             right_stick_tilt: None,
+            tilt_on_left_stick: false,
             ambient_bars: None,
             perf_log: None,
             screenshot_every: None,
@@ -353,6 +360,19 @@ impl Options {
                 .extend(value.split(',').filter(|p| !p.is_empty()).map(String::from));
         } else if arg == "--minos-pad" {
             self.minos_pad = true;
+        } else if arg == "--goat-pad" {
+            self.goat_pad = true;
+        } else if arg == "--left-stick-tilt" {
+            self.right_stick_tilt = Some(40.0);
+            self.tilt_on_left_stick = true;
+        } else if let Some(value) = arg.strip_prefix("--left-stick-tilt=") {
+            let degrees: f32 = value
+                .parse()
+                .ok()
+                .filter(|d: &f32| *d > 0.0 && *d <= 180.0)
+                .ok_or_else(|| "--left-stick-tilt= requires degrees from 0 to 180".to_string())?;
+            self.right_stick_tilt = Some(degrees);
+            self.tilt_on_left_stick = true;
         } else if arg == "--right-stick-tilt" {
             self.right_stick_tilt = Some(40.0);
         } else if let Some(value) = arg.strip_prefix("--right-stick-tilt=") {

@@ -115,6 +115,18 @@ View options:
         play the right trigger thrusts too: fully pulled it holds thrust, and
         part pulled it pulses it, longer pulses the further it's pulled.
 
+    --goat-pad
+        (Private fork, Goat Up.) Controller support that follows what's on
+        screen, alongside --left-stick-tilt (the game's control type C): A
+        jumps in play (held for a long jump) and on the menu presses TOUCH TO
+        START; X changes the control type and Y presses MORE INFO; B (or Esc)
+        quits from the menu, presses MAIN MENU on the info pages and QUIT when
+        paused; Start pauses and unpauses; on the info pages A presses MORE
+        INFO.
+
+    --left-stick-tilt[=DEGREES]
+        (Private fork.) The same as --right-stick-tilt, on the left stick.
+
     --right-stick-tilt[=DEGREES]
         (Private fork.) The device stands upright in portrait and the right
         stick's left/right turns it like a steering wheel, up to DEGREES each

@@ -42,6 +42,7 @@ mod gdb;
 mod gles;
 mod deflex;
 mod minos;
+mod goat;
 mod gridrunner;
 mod image;
 mod libc;

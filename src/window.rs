@@ -750,9 +750,9 @@ impl Window {
                 }
             }
 
-            // Private fork: --minos-pad takes the controller's buttons (the
-            // sticks stay as they are).
-            if options.minos_pad {
+            // Private fork: --minos-pad and --goat-pad take the controller's
+            // buttons (the sticks stay as they are).
+            if options.minos_pad || options.goat_pad {
                 if let E::ControllerButtonDown { button, .. } | E::ControllerButtonUp { button, .. } =
                     &event
                 {
@@ -1129,13 +1129,13 @@ impl Window {
                     keycode: Some(sdl2::keyboard::Keycode::Escape),
                     repeat: false,
                     ..
-                } if options.deflex_pad || options.minos_pad => {
+                } if options.deflex_pad || options.minos_pad || options.goat_pad => {
                     Event::PadInput(PadInput::Button(sdl2::controller::Button::B), true)
                 }
                 E::KeyUp {
                     keycode: Some(sdl2::keyboard::Keycode::Escape),
                     ..
-                } if options.deflex_pad || options.minos_pad => {
+                } if options.deflex_pad || options.minos_pad || options.goat_pad => {
                     Event::PadInput(PadInput::Button(sdl2::controller::Button::B), false)
                 }
                 E::KeyDown {
@@ -1355,7 +1355,7 @@ impl Window {
     fn steering_wheel_acceleration(&self, options: &Options, degrees: f32) -> (f32, f32, f32) {
         let x = match self.virtual_accelerometer_last {
             Some((x, _, true)) => x,
-            _ => self.get_controller_stick(options, false).0,
+            _ => self.get_controller_stick(options, options.tilt_on_left_stick).0,
         };
         let angle = (x.clamp(-1.0, 1.0) * degrees).to_radians();
         (angle.sin(), -angle.cos(), 0.0)
