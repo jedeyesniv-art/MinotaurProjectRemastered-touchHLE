@@ -447,6 +447,7 @@ impl ClassHostObject {
 /// touchHLE to currently support, but which can be easily replaced with simple
 /// fakes.
 fn substitute_classes(
+    extra_prefixes: &[String],
     mem: &Mem,
     class: Class,
     metaclass: Class,
@@ -467,7 +468,8 @@ fn substitute_classes(
         || name.starts_with("Flurry")
         || name.starts_with("Mobclix")
         || name.starts_with("OpenFeint")
-        || name.starts_with("Tapjoy"))
+        || name.starts_with("Tapjoy")
+        || extra_prefixes.iter().any(|prefix| name.starts_with(prefix.as_str())))
     {
         return None;
     }
@@ -644,7 +646,7 @@ impl ObjC {
             let class = mem.read(base + i);
             let metaclass = Self::read_isa(class, mem);
 
-            let name = if let Some(fakes) = substitute_classes(mem, class, metaclass) {
+            let name = if let Some(fakes) = substitute_classes(&self.extra_fake_class_prefixes, mem, class, metaclass) {
                 let (class_host_object, metaclass_host_object) = fakes;
 
                 assert!(class_host_object.name == metaclass_host_object.name);

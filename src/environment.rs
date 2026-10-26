@@ -516,6 +516,7 @@ impl Environment {
         bins.insert(0, executable);
 
         let mut objc = objc::ObjC::new();
+        objc.extra_fake_class_prefixes = options.fake_classes.clone();
 
         let mut dyld = dyld::Dyld::new();
         dyld.do_initial_linking(&bins, &mut mem, &mut objc);

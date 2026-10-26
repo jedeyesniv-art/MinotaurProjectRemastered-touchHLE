@@ -103,10 +103,7 @@ pub struct State {
 /// Returns the next time this function must be called, if any, e.g. the next
 /// time an accelerometer input is due.
 pub fn handle_events(env: &mut Environment) -> Option<Instant> {
-    use crate::frameworks::foundation::ns_string;
-    use crate::objc::release;
     use crate::window::Event;
-    use crate::window::TextInputEvent;
 
     // NSRunLoop will never call this function in headless mode.
     while let Some(event) = env.window_mut().pop_event() {
@@ -155,7 +152,13 @@ pub fn handle_events(env: &mut Environment) -> Option<Instant> {
             Event::RetryButton(down) => {
                 screen_button(env, crate::gridrunner::ScreenButton::Retry, down);
             }
-            Event::PadInput(input, down) => crate::deflex::handle_input(env, input, down),
+            Event::PadInput(input, down) => {
+                if env.options.minos_pad {
+                    crate::minos::handle_input(env, input, down)
+                } else {
+                    crate::deflex::handle_input(env, input, down)
+                }
+            }
             Event::ToggleRotation => {
                 use crate::window::DeviceOrientation;
                 let new_orientation = match env.window().current_rotation() {
@@ -172,45 +175,52 @@ pub fn handle_events(env: &mut Environment) -> Option<Instant> {
                 }
                 ui_device::generate_device_orientation_notification(env);
             }
-            Event::TextInput(text_event) => {
-                let responder = env.framework_state.uikit.ui_responder.first_responder;
-                let class = msg![env; responder class];
-                let ui_text_field_class = env.objc.get_known_class("UITextField", &mut env.mem);
-                if !responder.is_null() && env.objc.class_is_subclass_of(class, ui_text_field_class)
-                {
-                    match text_event {
-                        TextInputEvent::Text(text) => {
-                            ui_view::ui_control::ui_text_field::handle_text(env, responder, text)
-                        }
-                        TextInputEvent::Backspace => {
-                            ui_view::ui_control::ui_text_field::handle_backspace(env, responder)
-                        }
-                        TextInputEvent::Return => {
-                            ui_view::ui_control::ui_text_field::handle_return(env, responder)
-                        }
-                    }
-                } else if !responder.is_null() {
-                    // Private fork: other UIKeyInput responders, e.g. iCade
-                    // readers, which expect one character per insertText:.
-                    let insert_text = env.objc.lookup_selector("insertText:");
-                    if insert_text.is_some_and(|sel| msg![env; responder respondsToSelector:sel]) {
-                        let text = match text_event {
-                            TextInputEvent::Text(text) => text,
-                            TextInputEvent::Return => "\n".to_string(),
-                            TextInputEvent::Backspace => String::new(),
-                        };
-                        for ch in text.chars() {
-                            let ch = ns_string::from_rust_string(env, ch.to_string());
-                            () = msg![env; responder insertText:ch];
-                            release(env, ch);
-                        }
-                    }
-                }
-            }
+            Event::TextInput(text_event) => handle_text_input(env, text_event),
         }
     }
 
     ui_accelerometer::handle_accelerometer(env)
+}
+
+/// Typed text goes to the first responder: a text field, or (private fork)
+/// another UIKeyInput responder such as an iCade reader.
+pub fn handle_text_input(env: &mut Environment, text_event: crate::window::TextInputEvent) {
+    use crate::frameworks::foundation::ns_string;
+    use crate::objc::release;
+    use crate::window::TextInputEvent;
+
+    let responder = env.framework_state.uikit.ui_responder.first_responder;
+    let class = msg![env; responder class];
+    let ui_text_field_class = env.objc.get_known_class("UITextField", &mut env.mem);
+    if !responder.is_null() && env.objc.class_is_subclass_of(class, ui_text_field_class) {
+        match text_event {
+            TextInputEvent::Text(text) => {
+                ui_view::ui_control::ui_text_field::handle_text(env, responder, text)
+            }
+            TextInputEvent::Backspace => {
+                ui_view::ui_control::ui_text_field::handle_backspace(env, responder)
+            }
+            TextInputEvent::Return => {
+                ui_view::ui_control::ui_text_field::handle_return(env, responder)
+            }
+        }
+    } else if !responder.is_null() {
+        // Private fork: other UIKeyInput responders, e.g. iCade readers,
+        // which expect one character per insertText:.
+        let insert_text = env.objc.lookup_selector("insertText:");
+        if insert_text.is_some_and(|sel| msg![env; responder respondsToSelector:sel]) {
+            let text = match text_event {
+                TextInputEvent::Text(text) => text,
+                TextInputEvent::Return => "\n".to_string(),
+                TextInputEvent::Backspace => String::new(),
+            };
+            for ch in text.chars() {
+                let ch = ns_string::from_rust_string(env, ch.to_string());
+                () = msg![env; responder insertText:ch];
+                release(env, ch);
+            }
+        }
+    }
 }
 
 /// Private fork: the --exit-button and --retry-button. Each press looks at the

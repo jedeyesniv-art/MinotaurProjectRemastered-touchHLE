@@ -82,6 +82,47 @@ View options:
         retries, B quits and A goes to the next; B (or Esc) on the title or
         level select quits touchHLE.
 
+    --edge-bars=POINTS
+        (Private fork.) Fill the bars beside an upright portrait picture with
+        one colour: the average of the picture's outermost POINTS on both
+        sides, their whole height (sampled ten times a second, easing over
+        0.4 s), e.g. a game's cavern walls. Takes the place of
+        --ambient-bars, except where a game's pad support switches to the
+        glow (Caverns of Minos' menus).
+
+    --edge-bars-texture=FILE,POINTS
+        (Private fork.) With --edge-bars, tile this picture (next to
+        touchHLE) over the bars, each of its pixels POINTS screen points
+        across, multiplied by the bars' colour: white shows the colour itself,
+        grey darker flecks, the way games tint a grey-and-white texture. The
+        colour is first divided by the picture's average, so the bars' base
+        colour matches the original rather than the averaged one.
+
+    --fake-classes=PREFIX,...
+        (Private fork.) Also replace Objective-C classes whose names start
+        with these prefixes with fakes that ignore every message, as touchHLE
+        already does for OpenFeint*, FB* and ad SDKs. E.g. --fake-classes=OF
+        turns off all of OpenFeint, whose services otherwise crash with
+        OpenFeint itself faked.
+
+    --minos-pad
+        (Private fork, Caverns of Minos.) Controller support that follows
+        what's on screen, alongside --stick-to-icade: A is the iCade button
+        (thrust in play, select in menus) except on the info pages, where it
+        presses MORE; B (or Esc) quits from the title or menu, presses DONE on
+        the info pages and QUIT when paused; Start pauses and unpauses; on the
+        menu X presses INFO and d-pad left/right the difficulty - and +. In
+        play the right trigger thrusts too: fully pulled it holds thrust, and
+        part pulled it pulses it, longer pulses the further it's pulled.
+
+    --right-stick-tilt[=DEGREES]
+        (Private fork.) The device stands upright in portrait and the right
+        stick's left/right turns it like a steering wheel, up to DEGREES each
+        way (default 40), for the accelerometer and Core Motion alike.
+        Holding the right mouse button and moving left/right does the same.
+        The left stick no longer tilts the device, and the right stick no
+        longer drives the touch cursor.
+
     --retry-button=BUTTON
         (Private fork.) On the pause screen of a game with a retry button
         (Deflex), this button taps it. It does nothing anywhere else, e.g.
@@ -273,6 +314,11 @@ Game controller options:
         arcade cabinet sends for its joystick, for apps with iCade support.
         Pushing a direction past about a third of its travel holds it;
         diagonals hold two directions.
+
+    --button-to-icade=...
+        (Private Gridrunner fork.) While this controller button is held, the
+        app sees an iCade arcade cabinet button (1-8, the cabinet's A-H) held,
+        e.g. --button-to-icade=A,1. Can be given more than once.
 
     --icade-analog=...
         (Private Gridrunner fork.) Patches Gridrunner 1.02 so that, with

@@ -79,6 +79,35 @@ pub struct AmbientGlow {
     uniforms: [i32; 4],
 }
 
+/// Private fork, `--edge-bars`: the colours the bars are shown in (left,
+/// right), easing towards the sampled ones, kept per context.
+#[derive(Copy, Clone, Default)]
+pub struct EdgeBars {
+    colours: [[f32; 3]; 2],
+    filled: bool,
+}
+
+/// Private fork: what [present_frame] needs to draw the `--edge-bars`.
+pub struct EdgeBarsArgs<'a> {
+    pub state: &'a mut EdgeBars,
+    /// The sampled colours of the picture's left and right edges.
+    pub target: [[f32; 3]; 2],
+    pub pattern: Option<EdgePattern>,
+}
+
+/// Private fork: the `--edge-bars-texture` pattern.
+#[derive(Copy, Clone)]
+pub struct EdgePattern {
+    pub texture: u32,
+    pub size: (u32, u32),
+    /// Screen pixels per texel.
+    pub texel: f32,
+    /// The pattern's average colour (0-1).
+    pub average: [f32; 3],
+    /// How far (texels) the picture's edges have scrolled up.
+    pub scroll: f32,
+}
+
 const GLOW_VERTEX_SHADER: &str = "
 attribute vec2 a_pos;
 varying vec2 v_uv;
@@ -109,17 +138,33 @@ void main() {
 ";
 
 unsafe fn build_glow_program(gles: &mut dyn GLES, glow: &mut AmbientGlow) {
+    let names = [c"u_glow", c"u_picture", c"u_params", c"u_screen"];
+    let built = build_program(gles, GLOW_VERTEX_SHADER, GLOW_FRAGMENT_SHADER, &names, &mut glow.uniforms);
+    glow.program = built.unwrap_or_else(|what| {
+        log!("--ambient-bars: glow shader didn't {what}, using the plain glow");
+        u32::MAX
+    });
+}
+
+/// Private fork: compile and link a shader program (attributes `a_pos` = 0,
+/// `a_uv` = 1) and look up its uniforms. On failure, says what failed.
+unsafe fn build_program(
+    gles: &mut dyn GLES,
+    vertex_source: &str,
+    fragment_source: &str,
+    uniform_names: &[&std::ffi::CStr],
+    uniforms: &mut [i32],
+) -> Result<u32, &'static str> {
     use gles11::types::*;
     const COMPILE_STATUS: GLenum = 0x8B81;
     const LINK_STATUS: GLenum = 0x8B82;
     const VERTEX_SHADER: GLenum = 0x8B31;
     const FRAGMENT_SHADER: GLenum = 0x8B30;
 
-    glow.program = u32::MAX;
     let mut shaders = [0; 2];
     for (shader, (kind, source)) in shaders
         .iter_mut()
-        .zip([(VERTEX_SHADER, GLOW_VERTEX_SHADER), (FRAGMENT_SHADER, GLOW_FRAGMENT_SHADER)])
+        .zip([(VERTEX_SHADER, vertex_source), (FRAGMENT_SHADER, fragment_source)])
     {
         *shader = gles.CreateShader(kind);
         gles.ShaderSource(*shader, source);
@@ -127,29 +172,24 @@ unsafe fn build_glow_program(gles: &mut dyn GLES, glow: &mut AmbientGlow) {
         let mut ok = 0;
         gles.GetShaderiv(*shader, COMPILE_STATUS, &mut ok);
         if ok == 0 {
-            log!("--ambient-bars: glow shader didn't compile, using the plain glow");
-            return;
+            return Err("compile");
         }
     }
     let program = gles.CreateProgram();
     gles.AttachShader(program, shaders[0]);
     gles.AttachShader(program, shaders[1]);
     gles.BindAttribLocation(program, 0, c"a_pos".as_ptr());
+    gles.BindAttribLocation(program, 1, c"a_uv".as_ptr());
     gles.LinkProgram(program);
     let mut ok = 0;
     gles.GetProgramiv(program, LINK_STATUS, &mut ok);
     if ok == 0 {
-        log!("--ambient-bars: glow shader didn't link, using the plain glow");
-        return;
+        return Err("link");
     }
-    for (uniform, name) in glow
-        .uniforms
-        .iter_mut()
-        .zip([c"u_glow", c"u_picture", c"u_params", c"u_screen"])
-    {
+    for (uniform, name) in uniforms.iter_mut().zip(uniform_names) {
         *uniform = gles.GetUniformLocation(program, name.as_ptr());
     }
-    glow.program = program;
+    Ok(program)
 }
 
 /// Private fork: what [present_frame] needs to draw the ambient glow.
@@ -178,6 +218,7 @@ pub unsafe fn present_frame(
     frame_size: (u32, u32),
     sharp: Option<&mut SharpScaler>,
     ambient: Option<Ambient<'_>>,
+    edge_bars: Option<EdgeBarsArgs<'_>>,
 ) {
     // While this is a generic utility, it is closely tied to
     // crate::frameworks::opengles::eagl::present_renderbuffer, which handles
@@ -241,6 +282,9 @@ pub unsafe fn present_frame(
     gles.DrawArrays(gles11::TRIANGLES, 0, 6);
     // clean this up so we don't need to worry about it in e.g. Core Animation
     gles.LoadIdentity();
+    if let Some(edge_bars) = edge_bars {
+        draw_edge_bars(gles, edge_bars, viewport, &vertices);
+    }
     if crate::perf_log::enabled() {
         crate::perf_log::present_stage();
     }
@@ -453,6 +497,105 @@ unsafe fn draw_ambient_glow(
 
     gles.Color4f(1.0, 1.0, 1.0, 1.0);
     gles.TexEnvi(gles11::TEXTURE_ENV, gles11::TEXTURE_ENV_MODE, old_env_mode);
+}
+
+/// Private fork, `--edge-bars`: fill the bars beside an upright picture with
+/// solid colours, each easing towards its target (the average of that edge of
+/// the picture, see `sample_edge_bar_colours`) over about `SMOOTHING` seconds.
+/// With a pattern (`--edge-bars-texture`), the colour is divided by the
+/// pattern's average, to undo the averaging, and the pattern is tiled over
+/// the bars multiplied by it, starting at the picture's edges. The viewport
+/// is left as the picture's.
+unsafe fn draw_edge_bars(
+    gles: &mut dyn GLES,
+    edge_bars: EdgeBarsArgs<'_>,
+    viewport: (u32, u32, u32, u32),
+    vertices: &[f32; 12],
+) {
+    use gles11::types::*;
+    const SMOOTHING: f32 = 0.4;
+
+    let EdgeBarsArgs { state, target, pattern } = edge_bars;
+    let weight = if state.filled { 1.0 - (-1.0 / (60.0 * SMOOTHING)).exp() } else { 1.0 };
+    for (colour, target) in state.colours.iter_mut().zip(target) {
+        for (c, t) in colour.iter_mut().zip(target) {
+            *c += (t - *c) * weight;
+        }
+    }
+    state.filled = true;
+
+    let (vx, vy, vw, vh) = (viewport.0 as i32, viewport.1 as i32, viewport.2 as i32, viewport.3 as i32);
+    let mut old_texture: GLint = 0;
+    gles.GetIntegerv(gles11::TEXTURE_BINDING_2D, &mut old_texture);
+    let mut old_env_mode: GLint = 0;
+    gles.GetTexEnviv(gles11::TEXTURE_ENV, gles11::TEXTURE_ENV_MODE, &mut old_env_mode);
+    gles.EnableClientState(gles11::VERTEX_ARRAY);
+    gles.VertexPointer(2, gles11::FLOAT, 0, vertices.as_ptr() as *const GLvoid);
+    if let Some(pattern) = pattern {
+        gles.BindTexture(gles11::TEXTURE_2D, pattern.texture);
+        gles.TexEnvi(gles11::TEXTURE_ENV, gles11::TEXTURE_ENV_MODE, gles11::MODULATE as _);
+        gles.Enable(gles11::TEXTURE_2D);
+        gles.EnableClientState(gles11::TEXTURE_COORD_ARRAY);
+    } else {
+        gles.DisableClientState(gles11::TEXTURE_COORD_ARRAY);
+        gles.Disable(gles11::TEXTURE_2D);
+    }
+    // The picture is centred, so each bar is as wide as its left margin.
+    let bars = [(0, state.colours[0]), (vx + vw, state.colours[1])];
+    for (side, (x, colour)) in bars.into_iter().enumerate() {
+        let [r, g, b] = match pattern {
+            Some(pattern) => [0, 1, 2].map(|i| (colour[i] / pattern.average[i]).min(1.0)),
+            None => colour,
+        };
+        if let Some(EdgePattern { size: (tw, th), texel, scroll, .. }) = pattern {
+            // The pattern repeats across the bar from the picture's edge, and
+            // moves up as the picture's edges scroll up.
+            let across = vx as f32 / (tw as f32 * texel);
+            let down = vh as f32 / (th as f32 * texel);
+            let v0 = -scroll / th as f32;
+            let (u0, u1) = if side == 0 { (-across, 0.0) } else { (0.0, across) };
+            let (v1, v2) = (v0, v0 + down);
+            let tex_coords: [f32; 12] = [u0, v1, u0, v2, u1, v1, u1, v1, u0, v2, u1, v2];
+            gles.TexCoordPointer(2, gles11::FLOAT, 0, tex_coords.as_ptr() as *const GLvoid);
+        }
+        gles.Color4f(r, g, b, 1.0);
+        gles.Viewport(x, vy, vx, vh);
+        gles.DrawArrays(gles11::TRIANGLES, 0, 6);
+    }
+    gles.Color4f(1.0, 1.0, 1.0, 1.0);
+    gles.TexEnvi(gles11::TEXTURE_ENV, gles11::TEXTURE_ENV_MODE, old_env_mode);
+    gles.BindTexture(gles11::TEXTURE_2D, old_texture as GLuint);
+    gles.Enable(gles11::TEXTURE_2D);
+    gles.EnableClientState(gles11::TEXTURE_COORD_ARRAY);
+    gles.Viewport(vx, vy, vw, vh);
+}
+
+/// Private fork, `--edge-bars-texture`: upload the pattern to a new texture
+/// in the current context: repeating, smoothly filtered (as games draw such
+/// textures). The texture binding is left changed.
+pub unsafe fn upload_pattern(gles: &mut dyn GLES, image: &crate::image::Image) -> u32 {
+    let mut texture = 0;
+    gles.GenTextures(1, &mut texture);
+    gles.BindTexture(gles11::TEXTURE_2D, texture);
+    let (width, height) = image.dimensions();
+    gles.TexImage2D(
+        gles11::TEXTURE_2D,
+        0,
+        gles11::RGBA as _,
+        width as _,
+        height as _,
+        0,
+        gles11::RGBA,
+        gles11::UNSIGNED_BYTE,
+        image.pixels().as_ptr() as *const _,
+    );
+    for param in [gles11::TEXTURE_MIN_FILTER, gles11::TEXTURE_MAG_FILTER] {
+        gles.TexParameteri(gles11::TEXTURE_2D, param, gles11::LINEAR as _);
+    }
+    for param in [gles11::TEXTURE_WRAP_S, gles11::TEXTURE_WRAP_T] {
+        gles.TexParameteri(gles11::TEXTURE_2D, param, gles11::REPEAT as _);
+    }
+    texture
 }
 
 /// Private fork: upload a bezel picture to a new texture in the current

@@ -91,6 +91,19 @@ pub struct Options {
     pub retry_button: Option<Button>,
     /// Private fork: see `--deflex-pad` in OPTIONS_HELP.txt.
     pub deflex_pad: bool,
+    /// Private fork: see `--edge-bars` in OPTIONS_HELP.txt: the width in
+    /// screen points of the edge strip that's averaged.
+    pub edge_bars: Option<f32>,
+    /// Private fork: see `--edge-bars-texture` in OPTIONS_HELP.txt: the
+    /// image file and its size in screen points per texel.
+    pub edge_bars_texture: Option<(String, f32)>,
+    /// Private fork: see `--fake-classes` in OPTIONS_HELP.txt.
+    pub fake_classes: Vec<String>,
+    /// Private fork: see `--minos-pad` in OPTIONS_HELP.txt.
+    pub minos_pad: bool,
+    /// Private fork: see `--right-stick-tilt` in OPTIONS_HELP.txt: how far
+    /// the steering wheel turns each way, in degrees.
+    pub right_stick_tilt: Option<f32>,
     /// Private fork: see `--ambient-bars` in OPTIONS_HELP.txt: brightness,
     /// smoothing seconds, brightness and saturation beside the picture.
     pub ambient_bars: Option<[f32; 4]>,
@@ -144,6 +157,9 @@ pub struct Options {
     pub stick_mode_toggle: Option<(Button, f32)>,
     /// Private fork: the left stick types iCade joystick letters.
     pub stick_to_icade: bool,
+    /// Private fork: controller buttons that hold iCade buttons (1-8, the
+    /// cabinet's A-H).
+    pub button_to_icade: HashMap<Button, u8>,
     /// Private fork: see [crate::gridrunner]. Acceleration per game tick and
     /// top speed, both relative to the game's own full speed.
     pub icade_analog: Option<(f32, f32)>,
@@ -182,6 +198,11 @@ impl Default for Options {
             exit_button: None,
             retry_button: None,
             deflex_pad: false,
+            fake_classes: Vec::new(),
+            edge_bars: None,
+            edge_bars_texture: None,
+            minos_pad: false,
+            right_stick_tilt: None,
             ambient_bars: None,
             perf_log: None,
             screenshot_every: None,
@@ -205,6 +226,7 @@ impl Default for Options {
             swipe_origin: None,
             stick_mode_toggle: None,
             stick_to_icade: false,
+            button_to_icade: HashMap::new(),
             icade_analog: None,
             stabilize_virtual_cursor: None,
             gles1_implementation: None,
@@ -309,6 +331,37 @@ impl Options {
             self.ambient_bars = Some(values);
         } else if arg == "--deflex-pad" {
             self.deflex_pad = true;
+        } else if let Some(value) = arg.strip_prefix("--edge-bars=") {
+            let points: f32 = value
+                .parse()
+                .ok()
+                .filter(|p: &f32| *p >= 1.0)
+                .ok_or_else(|| "--edge-bars= requires a width of at least 1 point".to_string())?;
+            self.edge_bars = Some(points);
+        } else if let Some(value) = arg.strip_prefix("--edge-bars-texture=") {
+            let (file, points) = value
+                .rsplit_once(',')
+                .ok_or_else(|| "--edge-bars-texture= requires a file and a size".to_string())?;
+            let points: f32 = points
+                .parse()
+                .ok()
+                .filter(|p: &f32| *p > 0.0)
+                .ok_or_else(|| "--edge-bars-texture= requires a positive size".to_string())?;
+            self.edge_bars_texture = Some((file.to_string(), points));
+        } else if let Some(value) = arg.strip_prefix("--fake-classes=") {
+            self.fake_classes
+                .extend(value.split(',').filter(|p| !p.is_empty()).map(String::from));
+        } else if arg == "--minos-pad" {
+            self.minos_pad = true;
+        } else if arg == "--right-stick-tilt" {
+            self.right_stick_tilt = Some(40.0);
+        } else if let Some(value) = arg.strip_prefix("--right-stick-tilt=") {
+            let degrees: f32 = value
+                .parse()
+                .ok()
+                .filter(|d: &f32| *d > 0.0 && *d <= 180.0)
+                .ok_or_else(|| "--right-stick-tilt= requires degrees from 0 to 180".to_string())?;
+            self.right_stick_tilt = Some(degrees);
         } else if let Some(value) = arg.strip_prefix("--retry-button=") {
             self.retry_button = Some(parse_button(value, "--retry-button=")?);
         } else if let Some(value) = arg.strip_prefix("--exit-button=") {
@@ -385,6 +438,17 @@ impl Options {
             self.stick_to_swipe = Some(speed);
         } else if arg == "--stick-to-icade" {
             self.stick_to_icade = true;
+        } else if let Some(values) = arg.strip_prefix("--button-to-icade=") {
+            let (button, number) = values
+                .split_once(',')
+                .ok_or_else(|| "--button-to-icade= requires two values".to_string())?;
+            let button = parse_button(button, "--button-to-icade=")?;
+            let number: u8 = number
+                .parse()
+                .ok()
+                .filter(|n| (1..=8).contains(n))
+                .ok_or_else(|| "--button-to-icade= requires an iCade button from 1 to 8".to_string())?;
+            self.button_to_icade.insert(button, number);
         } else if let Some(value) = arg.strip_prefix("--icade-analog=") {
             let (accel, top_speed) = value.split_once(',').unwrap_or((value, "1"));
             let accel: f32 = accel

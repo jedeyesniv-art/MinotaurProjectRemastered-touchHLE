@@ -118,7 +118,12 @@ const CLASSES: ClassExports = objc_classes! {
 @implementation CMAccelerometerData: NSObject
 
 - (CMAcceleration)acceleration {
-    UPRIGHT_PORTRAIT
+    // Private fork: with --right-stick-tilt, the steering wheel instead.
+    if env.options.right_stick_tilt.is_none() {
+        return UPRIGHT_PORTRAIT;
+    }
+    let (x, y, z) = env.window().get_acceleration(&env.options);
+    CMAcceleration { x: x.into(), y: y.into(), z: z.into() }
 }
 - (NSTimeInterval)timestamp {
     0.0

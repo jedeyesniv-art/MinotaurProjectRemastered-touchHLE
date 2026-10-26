@@ -15,7 +15,8 @@ use crate::frameworks::foundation::NSUInteger;
 use crate::gles::gles11_raw as gles11; // constants only
 use crate::gles::gles11_raw::types::*;
 use crate::gles::present::{
-    present_frame, upload_bezel, Ambient, AmbientGlow, Bezel, FpsCounter, SharpScaler,
+    present_frame, upload_bezel, upload_pattern, Ambient, AmbientGlow, Bezel, EdgeBars,
+    EdgeBarsArgs, EdgePattern, FpsCounter, SharpScaler,
 };
 use crate::gles::{create_gles1_ctx, create_gles2_ctx, gles1_on_gl2, GLESContext, GLES};
 use crate::mem::MutPtr;
@@ -75,6 +76,10 @@ pub(super) struct EAGLContextHostObject {
     sharp_scaler: SharpScaler,
     /// Private fork: see `--ambient-bars`.
     ambient_glow: AmbientGlow,
+    /// Private fork: see `--edge-bars`.
+    edge_bars: EdgeBars,
+    /// Private fork: the `--edge-bars-texture` texture, once uploaded.
+    edge_bars_texture: Option<GLuint>,
 }
 impl HostObject for EAGLContextHostObject {}
 
@@ -95,6 +100,8 @@ pub const CLASSES: ClassExports = objc_classes! {
         bezel_texture: None,
         sharp_scaler: SharpScaler::default(),
         ambient_glow: AmbientGlow::default(),
+        edge_bars: EdgeBars::default(),
+        edge_bars_texture: None,
     });
     env.objc.alloc_object(this, host_object, &mut env.mem)
 }
@@ -305,6 +312,12 @@ pub const CLASSES: ClassExports = objc_classes! {
     }
     if env.options.deflex_pad {
         crate::deflex::frame(env);
+    }
+    if env.options.minos_pad {
+        crate::minos::frame(env);
+    }
+    if let Some(points) = env.options.edge_bars {
+        sample_edge_bar_colours(env, points);
     }
 
     let (fullscreen_layer, crop) = find_fullscreen_eagl_layer_and_crop(env);
@@ -649,7 +662,20 @@ unsafe fn present_renderbuffer(env: &mut Environment, crop: [f32; 4]) {
         .objc
         .borrow::<EAGLContextHostObject>(current_ctx)
         .ambient_glow;
-    let ambient_bars = env.options.ambient_bars;
+    let edge_bars = env.window().edge_bars(&env.options);
+    let mut edge_bars_state = env
+        .objc
+        .borrow::<EAGLContextHostObject>(current_ctx)
+        .edge_bars;
+    let mut edge_bars_texture = env
+        .objc
+        .borrow::<EAGLContextHostObject>(current_ctx)
+        .edge_bars_texture;
+    let edge_bars_pattern = env.window().edge_bars_texture();
+    let edge_bars_scroll = env.window().edge_bar_scroll();
+    let view_height_points = env.window().size_unrotated_unscaled().1;
+    // The edge bars cover the whole of the bars, so the glow isn't needed.
+    let ambient_bars = env.options.ambient_bars.filter(|_| edge_bars.is_none());
     let screen_size = env.window.as_ref().unwrap().drawable_size();
 
     let gles_ctx = super::get_thread_context(
@@ -815,6 +841,22 @@ unsafe fn present_renderbuffer(env: &mut Environment, crop: [f32; 4]) {
         }
     });
 
+    // Upload the --edge-bars-texture the first time it's needed here.
+    let edge_bars_pattern = edge_bars.and(edge_bars_pattern).map(|(image, points, average)| {
+        let pattern_texture = *edge_bars_texture.get_or_insert_with(|| {
+            let pattern_texture = upload_pattern(gles, &image);
+            gles.BindTexture(gles11::TEXTURE_2D, texture);
+            pattern_texture
+        });
+        EdgePattern {
+            texture: pattern_texture,
+            size: image.dimensions(),
+            texel: points * viewport.3 as f32 / view_height_points.max(1) as f32,
+            average,
+            scroll: edge_bars_scroll / points,
+        }
+    });
+
     if crate::perf_log::enabled() {
         crate::perf_log::present_stage();
     }
@@ -834,6 +876,11 @@ unsafe fn present_renderbuffer(env: &mut Environment, crop: [f32; 4]) {
             near_brightness,
             near_saturation,
             screen_size,
+        }),
+        edge_bars.map(|target| EdgeBarsArgs {
+            state: &mut edge_bars_state,
+            target,
+            pattern: edge_bars_pattern,
         }),
     );
     if crate::perf_log::enabled() {
@@ -928,6 +975,8 @@ unsafe fn present_renderbuffer(env: &mut Environment, crop: [f32; 4]) {
     host_object.bezel_texture = bezel_texture;
     host_object.sharp_scaler = sharp_scaler;
     host_object.ambient_glow = ambient_glow;
+    host_object.edge_bars = edge_bars_state;
+    host_object.edge_bars_texture = edge_bars_texture;
 }
 
 /// Private fork: read a rectangle (x, y, width, height in screen points,
@@ -983,6 +1032,120 @@ fn save_screenshot_if_due(env: &mut Environment, every: f64) {
             log!("screenshot: couldn't save {}: {}", name, e);
         }
     }
+}
+
+/// Private fork, `--edge-bars`: each frame, average the picture's outermost
+/// `points` on both sides, the whole height, as the bars' colour, and follow
+/// how far that strip has scrolled vertically (for `--edge-bars-texture`):
+/// its brightness down the screen is matched against the last frame's at
+/// shifts of up to `MAX_SHIFT` pixels, and the best match is added to the
+/// running scroll. A poor match (something big passing) keeps the last speed
+/// for a few frames rather than jerking.
+fn sample_edge_bar_colours(env: &mut Environment, points: f32) {
+    const MAX_SHIFT: i32 = 20;
+    const MIN_MATCH: f32 = 0.6;
+    const HOLD_FRAMES: u32 = 10;
+    #[derive(Default)]
+    struct Scroll {
+        last: Vec<f32>,
+        speed: f32,
+        misses: u32,
+        total: f32,
+    }
+    thread_local! {
+        static SCROLL: std::cell::RefCell<Scroll> = std::cell::RefCell::new(Scroll::default());
+    }
+
+    let (width, height) = env.window().size_unrotated_unscaled();
+    let strip = (points.round() as u32).clamp(1, width);
+    let mut sums = [0u64; 3];
+    let mut count = 0;
+    // Brightness of each row, bottom row first.
+    let mut profile: Vec<f32> = Vec::new();
+    for x in [0, width - strip] {
+        let Some(pixels) = read_screen_pixels(env, (x, 0, strip, height)) else {
+            return;
+        };
+        let rows = (pixels.len() / 4) / strip as usize;
+        profile.resize(rows, 0.0);
+        for (i, p) in pixels.chunks_exact(4).enumerate() {
+            for (sum, &c) in sums.iter_mut().zip(p) {
+                *sum += c as u64;
+            }
+            profile[i / strip as usize] += (p[0] as u32 + p[1] as u32 + p[2] as u32) as f32;
+        }
+        count += pixels.len() / 4;
+    }
+    let colour = sums.map(|sum| sum as f32 / count.max(1) as f32 / 255.0);
+    env.window_mut().set_edge_bar_colours([colour, colour]);
+
+    let mean = profile.iter().sum::<f32>() / profile.len().max(1) as f32;
+    for v in profile.iter_mut() {
+        *v -= mean;
+    }
+    let points_per_row = height as f32 / profile.len().max(1) as f32;
+    let total = SCROLL.with(|scroll| {
+        let mut scroll = scroll.borrow_mut();
+        let shift = (scroll.last.len() == profile.len())
+            .then(|| best_shift(&scroll.last, &profile, MAX_SHIFT))
+            .flatten()
+            .filter(|&(_, score)| score >= MIN_MATCH);
+        match shift {
+            Some((rows, _)) => {
+                scroll.speed = rows * points_per_row;
+                scroll.misses = 0;
+            }
+            None => {
+                scroll.misses += 1;
+                if scroll.misses > HOLD_FRAMES {
+                    scroll.speed = 0.0;
+                }
+            }
+        }
+        scroll.total += scroll.speed;
+        scroll.last = profile;
+        scroll.total
+    });
+    env.window_mut().set_edge_bar_scroll(total);
+}
+
+/// Private fork, `--edge-bars`: how many rows (fractional) the content of
+/// `last` has moved up to give `now`, and how well they match there (the
+/// normalised correlation, 1 = exactly), if it's anything but flat.
+fn best_shift(last: &[f32], now: &[f32], max_shift: i32) -> Option<(f32, f32)> {
+    let n = now.len() as i32;
+    if last.len() != now.len() || n <= 4 * max_shift {
+        return None;
+    }
+    let score = |d: i32| {
+        let (mut dot, mut a2, mut b2) = (0.0f32, 0.0f32, 0.0f32);
+        for i in max_shift..(n - max_shift) {
+            let (a, b) = (last[i as usize], now[(i + d) as usize]);
+            dot += a * b;
+            a2 += a * a;
+            b2 += b * b;
+        }
+        if a2 <= 0.0 || b2 <= 0.0 {
+            0.0
+        } else {
+            dot / (a2 * b2).sqrt()
+        }
+    };
+    let scores: Vec<f32> = (-max_shift..=max_shift).map(score).collect();
+    let (best, &peak) = scores.iter().enumerate().max_by(|a, b| a.1.total_cmp(b.1))?;
+    if peak <= 0.0 {
+        return None;
+    }
+    // Refine between rows with a parabola through the peak and its neighbours.
+    let mut rows = best as f32 - max_shift as f32;
+    if best > 0 && best + 1 < scores.len() {
+        let (l, r) = (scores[best - 1], scores[best + 1]);
+        let curve = l - 2.0 * peak + r;
+        if curve < 0.0 {
+            rows += 0.5 * (l - r) / curve;
+        }
+    }
+    Some((rows, peak))
 }
 
 pub fn read_screen_pixels(env: &mut Environment, rect: (u32, u32, u32, u32)) -> Option<Vec<u8>> {

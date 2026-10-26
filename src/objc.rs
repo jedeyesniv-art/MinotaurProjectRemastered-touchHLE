@@ -88,6 +88,10 @@ pub struct ObjC {
     /// Type information isn't part of the `objc_msgSend` ABI, so an alternative
     /// channel is needed.
     message_type_info: Option<(std::any::TypeId, &'static str)>,
+
+    /// Private fork: `--fake-classes`, more class name prefixes to replace
+    /// with fakes (see `substitute_classes`).
+    pub extra_fake_class_prefixes: Vec<String>,
 }
 
 impl ObjC {
@@ -99,6 +103,7 @@ impl ObjC {
             sync_mutexes: HashMap::new(),
             initializer_threads: HashMap::new(),
             message_type_info: None,
+            extra_fake_class_prefixes: Vec::new(),
         }
     }
 }

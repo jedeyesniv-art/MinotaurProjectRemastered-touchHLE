@@ -121,6 +121,22 @@ fn set_sdl2_orientation(orientation: DeviceOrientation) {
     );
 }
 
+/// Private fork: load a picture named in the options, from next to touchHLE
+/// or else built in (`what` names it in the log if neither works).
+fn load_user_image(name: &str, what: &str) -> Option<std::rc::Rc<Image>> {
+    let path = crate::paths::user_data_base_path().join(name);
+    // A file next to touchHLE wins over a built-in copy.
+    let bytes = std::fs::read(&path)
+        .or_else(|e| crate::embedded::resource(name).map(<[u8]>::to_vec).ok_or(e));
+    match bytes.map_err(|e| e.to_string()).and_then(|b| Image::from_bytes(&b)) {
+        Ok(image) => Some(std::rc::Rc::new(image)),
+        Err(e) => {
+            log!("Couldn't load {} {:?}: {}", what, path, e);
+            None
+        }
+    }
+}
+
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
 pub enum FingerId {
     /// Private fork: a `--deflex-pad` input holding a touch.
@@ -269,6 +285,9 @@ pub struct Window {
     landscape_fill_screen: bool,
     /// See `--bezel`.
     bezel_image: Option<std::rc::Rc<Image>>,
+    /// Private fork: the `--edge-bars-texture` picture, its size in screen
+    /// points per texel and its average colour (0-1).
+    edge_bars_texture: Option<(std::rc::Rc<Image>, f32, [f32; 3])>,
     /// See `--move-to-margin`: (u, v, width, height) as fractions of the
     /// portrait picture, top-left origin.
     margin_pieces: Vec<[f32; 4]>,
@@ -302,6 +321,15 @@ pub struct Window {
     accelerometer: Option<sdl2::sensor::Sensor>,
     virtual_cursor_last: Option<(f32, f32, bool, bool)>,
     virtual_cursor_last_unsticky: Option<(f32, f32, Instant)>,
+    /// Private fork, `--edge-bars`: off while a game's pad support says the
+    /// screen suits the `--ambient-bars` glow better.
+    edge_bars_off: bool,
+    /// Private fork, `--edge-bars`: the latest average colour of the picture's
+    /// left and right edges.
+    edge_bar_colours: Option<[[f32; 3]; 2]>,
+    /// Private fork, `--edge-bars`: how far (screen points) the picture's
+    /// edges have scrolled up in all.
+    edge_bar_scroll: f32,
     /// Private fork, `--deflex-pad`: the menu pointer (shown while enabled),
     /// in the app's screen points as the user sees them.
     pad_cursor_enabled: bool,
@@ -469,19 +497,17 @@ impl Window {
                     .collect()
             },
             margin_scale: options.margin_scale,
-            bezel_image: options.bezel.as_ref().and_then(|name| {
-                let path = crate::paths::user_data_base_path().join(name);
-                // A file next to touchHLE wins over a built-in copy.
-                let bytes = std::fs::read(&path).or_else(|e| {
-                    crate::embedded::resource(name).map(<[u8]>::to_vec).ok_or(e)
-                });
-                match bytes.map_err(|e| e.to_string()).and_then(|b| Image::from_bytes(&b)) {
-                    Ok(image) => Some(std::rc::Rc::new(image)),
-                    Err(e) => {
-                        log!("Couldn't load bezel {:?}: {}", path, e);
-                        None
+            bezel_image: options.bezel.as_ref().and_then(|name| load_user_image(name, "bezel")),
+            edge_bars_texture: options.edge_bars_texture.as_ref().and_then(|(name, points)| {
+                let image = load_user_image(name, "edge bars texture")?;
+                let mut sums = [0.0f32; 3];
+                for p in image.pixels().chunks_exact(4) {
+                    for (sum, &c) in sums.iter_mut().zip(p) {
+                        *sum += c as f32 / 255.0;
                     }
                 }
+                let count = (image.pixels().len() / 4).max(1) as f32;
+                Some((image, *points, sums.map(|s| (s / count).max(0.01))))
             }),
             internal_gl_ins: None,
             splash_image: launch_image,
@@ -511,6 +537,9 @@ impl Window {
             accelerometer,
             virtual_cursor_last: None,
             virtual_cursor_last_unsticky: None,
+            edge_bars_off: false,
+            edge_bar_colours: None,
+            edge_bar_scroll: 0.0,
             pad_cursor_enabled: false,
             pad_cursor: None,
             pad_cursor_pressed: false,
@@ -721,6 +750,18 @@ impl Window {
                 }
             }
 
+            // Private fork: --minos-pad takes the controller's buttons (the
+            // sticks stay as they are).
+            if options.minos_pad {
+                if let E::ControllerButtonDown { button, .. } | E::ControllerButtonUp { button, .. } =
+                    &event
+                {
+                    let down = matches!(event, E::ControllerButtonDown { .. });
+                    self.event_queue.push_back(Event::PadInput(PadInput::Button(*button), down));
+                    continue;
+                }
+            }
+
             if options.mouse_to_swipe.is_some() {
                 if let E::MouseMotion {
                     x,
@@ -821,6 +862,19 @@ impl Window {
                             event,
                             E::ControllerButtonDown { .. }
                         )));
+                        continue;
+                    }
+                    // Private fork: iCade sends one letter when a button is
+                    // pressed and another when it is released, for A-H.
+                    if let Some(&number) = options.button_to_icade.get(&button) {
+                        const PRESS: [char; 8] = ['y', 'h', 'u', 'j', 'i', 'k', 'o', 'l'];
+                        const RELEASE: [char; 8] = ['t', 'r', 'f', 'n', 'm', 'p', 'g', 'v'];
+                        let letters = match event {
+                            E::ControllerButtonDown { .. } => PRESS,
+                            _ => RELEASE,
+                        };
+                        let text = letters[number as usize - 1].to_string();
+                        self.event_queue.push_back(Event::TextInput(TextInputEvent::Text(text)));
                         continue;
                     }
                     // Called whenever a DPad direction is pressed or released
@@ -1075,13 +1129,13 @@ impl Window {
                     keycode: Some(sdl2::keyboard::Keycode::Escape),
                     repeat: false,
                     ..
-                } if options.deflex_pad => {
+                } if options.deflex_pad || options.minos_pad => {
                     Event::PadInput(PadInput::Button(sdl2::controller::Button::B), true)
                 }
                 E::KeyUp {
                     keycode: Some(sdl2::keyboard::Keycode::Escape),
                     ..
-                } if options.deflex_pad => {
+                } if options.deflex_pad || options.minos_pad => {
                     Event::PadInput(PadInput::Button(sdl2::controller::Button::B), false)
                 }
                 E::KeyDown {
@@ -1139,7 +1193,7 @@ impl Window {
             self.update_pad_cursor(options);
             return;
         }
-        if controller_updated {
+        if controller_updated && options.right_stick_tilt.is_none() {
             let (new_x, new_y, pressed, pressed_changed, moved) =
                 self.update_virtual_cursor(options);
             self.event_queue
@@ -1229,6 +1283,9 @@ impl Window {
     /// Get the real or simulated accelerometer output.
     /// See also [crate::frameworks::uikit::ui_accelerometer].
     pub fn get_acceleration(&self, options: &Options) -> (f32, f32, f32) {
+        if let Some(degrees) = options.right_stick_tilt {
+            return self.steering_wheel_acceleration(options, degrees);
+        }
         if self.controllers.is_empty() || !options.analog_stick_tilt_controls {
             if let Some(ref accelerometer) = self.accelerometer {
                 let data = accelerometer.get_data().unwrap();
@@ -1289,6 +1346,19 @@ impl Window {
         let [x, y, z] = matrix.transform(gravity);
 
         (x, y, z)
+    }
+
+    /// Private fork, `--right-stick-tilt`: the device stands upright in
+    /// portrait, turned like a steering wheel by the right stick's (or a
+    /// right-drag's) left/right, up to `degrees` each way. Turning it
+    /// clockwise moves gravity towards the screen's right (+x).
+    fn steering_wheel_acceleration(&self, options: &Options, degrees: f32) -> (f32, f32, f32) {
+        let x = match self.virtual_accelerometer_last {
+            Some((x, _, true)) => x,
+            _ => self.get_controller_stick(options, false).0,
+        };
+        let angle = (x.clamp(-1.0, 1.0) * degrees).to_radians();
+        (angle.sin(), -angle.cos(), 0.0)
     }
 
     /// For use when redrawing the screen: Get the cached on-screen position and
@@ -1669,6 +1739,55 @@ impl Window {
         (x, y, pressed)
     }
 
+    /// Private fork, `--edge-bars`: switch them off (the `--ambient-bars` glow
+    /// shows instead, if enabled) or back on.
+    pub fn set_edge_bars_off(&mut self, off: bool) {
+        self.edge_bars_off = off;
+    }
+
+    /// Private fork, `--edge-bars-texture`: the picture, its size in screen
+    /// points per texel and its average colour.
+    pub fn edge_bars_texture(&self) -> Option<(std::rc::Rc<Image>, f32, [f32; 3])> {
+        self.edge_bars_texture.clone()
+    }
+
+    /// Private fork, `--edge-bars`: the latest average colours of the
+    /// picture's left and right edges (see
+    /// `crate::frameworks::opengles::eagl::sample_edge_bar_colours`).
+    pub fn set_edge_bar_colours(&mut self, colours: [[f32; 3]; 2]) {
+        self.edge_bar_colours = Some(colours);
+    }
+
+    /// Private fork, `--edge-bars`: how far (screen points) the picture's
+    /// edges have scrolled up in all, for the pattern to follow.
+    pub fn set_edge_bar_scroll(&mut self, points: f32) {
+        self.edge_bar_scroll = points;
+    }
+    pub fn edge_bar_scroll(&self) -> f32 {
+        self.edge_bar_scroll
+    }
+
+    /// Private fork, `--edge-bars`: the colours to fill the bars with (left,
+    /// right), if they should show now (upright portrait, sampled, not
+    /// switched off).
+    pub fn edge_bars(&self, options: &Options) -> Option<[[f32; 3]; 2]> {
+        options.edge_bars?;
+        if self.edge_bars_off || self.device_orientation != DeviceOrientation::Portrait {
+            return None;
+        }
+        self.edge_bar_colours
+    }
+
+    /// Private fork: how far the right trigger is pulled, from 0 to 1 (the
+    /// most of any controller).
+    pub fn right_trigger(&self) -> f32 {
+        self.controllers
+            .iter()
+            .map(|c| c.axis(sdl2::controller::Axis::TriggerRight) as f32 / i16::MAX as f32)
+            .fold(0.0, f32::max)
+            .clamp(0.0, 1.0)
+    }
+
     pub fn create_gl_context(&self, version: GLVersion) -> Result<GLContext, String> {
         let attr = self.video_ctx.gl_attr();
         match version {
@@ -1780,6 +1899,7 @@ impl Window {
                 (width, height),
                 /* sharp: */ None,
                 /* ambient: */ None,
+                /* edge_bars: */ None,
             );
 
             gl_ctx.DeleteTextures(1, &texture);

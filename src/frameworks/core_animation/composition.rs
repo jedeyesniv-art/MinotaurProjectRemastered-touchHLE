@@ -403,6 +403,7 @@ pub fn recomposite_if_necessary(env: &mut Environment, force: bool) -> Option<In
             (fb_width, fb_height),
             sharp_scaling.then_some(&mut composition.sharp_scaler),
             ambient,
+            /* edge_bars: */ None,
         );
     }
     std::mem::drop(gles);
