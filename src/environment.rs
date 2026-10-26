@@ -538,6 +538,7 @@ impl Environment {
 
                     crate::gridrunner::apply_patch(env);
                     crate::goat2::apply_log_patch(env);
+                    crate::rescue::apply_patch(env);
 
                     // Call `+load` method on classes where it's defined.
                     // TODO: `+load` methods from our image should take priority

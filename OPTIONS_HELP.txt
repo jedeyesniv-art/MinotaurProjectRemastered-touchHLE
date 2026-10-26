@@ -161,6 +161,25 @@ View options:
         Start pauses and unpauses; when paused Y is RESET, B is Exit and X
         changes the control type.
 
+    --rescue-pad
+        (Private fork, Minotaur Rescue iOS.) Controller support that follows
+        what's on screen: in play the left stick strokes a virtual finger
+        (like the PC beta's TOUCHY stick), Start double-taps the sun to
+        pause and A taps the middle (game over); on the title A begins and B
+        (or Esc) quits; main menu A PLAY, X INFO, Y the game select banner, B
+        quits; info A/X/Y its three pages, B BACK; on those pages the stick
+        scrolls and A or B is BACK; level select d-pad the level, X SURVIVAL, A START, B BACK;
+        pause Start UNPAUSE, B QUIT GAME, d-pad the audio level.
+
+    --rescue-turn-fix
+        (Private fork, Minotaur Rescue iOS 1.0.) Fixes the game's ship turn,
+        which went the long way round (a spin or twitch) whenever the turn
+        crossed pointing left, as a left stroke usually does.
+
+    --rescue-touch-speed=SPEED
+        (Private fork.) --rescue-pad's finger speed at full tilt, in screen
+        heights per second. Default 1.0.
+
     --left-stick-tilt[=DEGREES]
         (Private fork.) The same as --right-stick-tilt, on the left stick.
 

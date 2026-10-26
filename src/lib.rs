@@ -44,6 +44,7 @@ mod deflex;
 mod minos;
 mod goat;
 mod goat2;
+mod rescue;
 mod gridrunner;
 mod image;
 mod libc;

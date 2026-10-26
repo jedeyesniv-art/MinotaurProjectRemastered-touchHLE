@@ -105,6 +105,13 @@ pub struct Options {
     pub goat_pad: bool,
     /// Private fork: see `--goat2-pad` in OPTIONS_HELP.txt.
     pub goat2_pad: bool,
+    /// Private fork: see `--rescue-pad` in OPTIONS_HELP.txt.
+    pub rescue_pad: bool,
+    /// Private fork: `--rescue-pad`'s finger speed at full tilt, in screen
+    /// heights per second.
+    pub rescue_touch_speed: f32,
+    /// Private fork: see `--rescue-turn-fix` in OPTIONS_HELP.txt.
+    pub rescue_turn_fix: bool,
     /// Private fork: see `--right-stick-tilt` in OPTIONS_HELP.txt: how far
     /// the steering wheel turns each way, in degrees.
     pub right_stick_tilt: Option<f32>,
@@ -223,6 +230,9 @@ impl Default for Options {
             minos_pad: false,
             goat_pad: false,
             goat2_pad: false,
+            rescue_pad: false,
+            rescue_touch_speed: 1.0,
+            rescue_turn_fix: false,
             right_stick_tilt: None,
             tilt_on_left_stick: false,
             ambient_bars: None,
@@ -408,6 +418,14 @@ impl Options {
             self.goat_pad = true;
         } else if arg == "--goat2-pad" {
             self.goat2_pad = true;
+        } else if arg == "--rescue-pad" {
+            self.rescue_pad = true;
+        } else if arg == "--rescue-turn-fix" {
+            self.rescue_turn_fix = true;
+        } else if let Some(value) = arg.strip_prefix("--rescue-touch-speed=") {
+            self.rescue_touch_speed = value
+                .parse()
+                .map_err(|_| "--rescue-touch-speed= needs a number".to_string())?;
         } else if arg == "--left-stick-tilt" {
             self.right_stick_tilt = Some(40.0);
             self.tilt_on_left_stick = true;

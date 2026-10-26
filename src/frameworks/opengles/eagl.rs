@@ -322,6 +322,9 @@ pub const CLASSES: ClassExports = objc_classes! {
     if env.options.goat2_pad {
         crate::goat2::frame(env);
     }
+    if env.options.rescue_pad {
+        crate::rescue::frame(env);
+    }
     if env.options.exit_button.is_some() {
         crate::frameworks::uikit::screen_button_frame(env);
     }
