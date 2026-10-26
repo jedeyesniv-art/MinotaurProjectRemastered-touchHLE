@@ -17,11 +17,15 @@
 //! - info: the yellow ABOUT SOLAR MINOTAUR RESCUE FRENZY in the middle
 //! - main menu: the yellow game name at the top and cyan PLAY
 //! - title: the red top band of the ATAURUS rainbow
+//! - the info screen, main menu and level select also need the purple band
+//!   under their headers (0.32-0.57; at most 0.08 in play): a yellow
+//!   explosion in play once passed for the info screen
 //! - text pages (from info): the green box with a teal deer, their BACK
 //!
 //! Play looks like the attract demo, so it's known by state instead: from
 //! leaving the level select (by pad or mouse) until a menu or the title
-//! comes back (game over is a tap in the middle, so A gives one). Other screens count
+//! comes back, seen in two checks running (game over is a tap in the
+//! middle, so A gives one). Other screens count
 //! as the attract demo.
 
 use crate::frameworks::opengles::eagl::read_screen_pixels;
@@ -81,6 +85,7 @@ const INFO_HEADING: Rect = (300, 250, 420, 45);
 const MENU_NAME: Rect = (300, 40, 420, 45);
 const MENU_PLAY: Rect = (690, 660, 110, 45);
 const RAINBOW_RED: Rect = (0, 32, 1024, 25);
+const MENU_BAND: Rect = (0, 130, 1024, 25);
 const TEXT_DEER: Rect = (890, 590, 80, 80);
 
 // Where to tap (landscape points).
@@ -154,16 +159,18 @@ fn recognise_colours(env: &mut Environment) -> Option<Screen> {
         score(env, MENU_NAME, yellow),
         score(env, MENU_PLAY, cyan),
         score(env, RAINBOW_RED, red),
+        score(env, MENU_BAND, purple),
     ];
     log_dbg!("Rescue pad scores: {:?}", scores);
-    let [unpause, quit, survival, row, info, name, play, rainbow] = scores;
+    let [unpause, quit, survival, row, info, name, play, rainbow, band] = scores;
+    let menu = band > 0.15;
     if unpause > 0.25 && quit > 0.25 {
         Some(Screen::Pause)
-    } else if (survival > 0.4 || score(env, SURVIVAL_BOX, red) > 0.4) && row > 0.25 {
+    } else if menu && (survival > 0.4 || score(env, SURVIVAL_BOX, red) > 0.4) && row > 0.25 {
         Some(Screen::LevelSelect)
-    } else if info > 0.04 {
+    } else if menu && info > 0.04 {
         Some(Screen::Info)
-    } else if name > 0.04 && play > 0.02 {
+    } else if menu && name > 0.04 && play > 0.02 {
         Some(Screen::MainMenu)
     } else if rainbow > 0.5 {
         Some(Screen::Title)
@@ -180,6 +187,8 @@ struct State {
     playing: bool,
     /// The last screen recognised by colour.
     last_known: Option<Screen>,
+    /// In play, a menu seen once: play ends if the next check sees it too.
+    leaving: Option<Screen>,
     /// The screen at the last check (every few frames).
     screen: Option<Screen>,
     /// Touches held by inputs, until they're released.
@@ -202,7 +211,13 @@ fn screen_now(env: &mut Environment) -> Screen {
     let colours = recognise_colours(env);
     STATE.with(|s| {
         let mut s = s.borrow_mut();
+        let leaving = std::mem::take(&mut s.leaving);
         if let Some(screen) = colours {
+            if s.playing && screen != Screen::Pause && leaving != Some(screen) {
+                // Once could be noise in play.
+                s.leaving = Some(screen);
+                return Screen::Play;
+            }
             if screen != Screen::Pause {
                 s.playing = false;
             }
@@ -377,6 +392,11 @@ pub fn frame(env: &mut Environment) {
             }
             s.screen = Some(screen);
         });
+        // Play's black sky and colourful noise make a messy glow: black bars
+        // there (and the attract demo, which is play), the glow on the title
+        // and menus.
+        let black = matches!(screen, Screen::Play | Screen::Pause | Screen::Attract);
+        env.window_mut().set_ambient_bars_off(black);
     }
     finger_frame(env);
     scroll_frame(env);

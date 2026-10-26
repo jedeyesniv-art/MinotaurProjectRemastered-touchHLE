@@ -324,6 +324,9 @@ pub struct Window {
     /// Private fork, `--edge-bars`: off while a game's pad support says the
     /// screen suits the `--ambient-bars` glow better.
     edge_bars_off: bool,
+    /// Private fork, `--ambient-bars`: off (black bars) while a game's pad
+    /// support says the screen is too noisy for the glow.
+    ambient_bars_off: bool,
     /// Private fork, `--edge-bars`: the latest average colour of the picture's
     /// left and right edges.
     edge_bar_colours: Option<[[f32; 3]; 2]>,
@@ -538,6 +541,7 @@ impl Window {
             virtual_cursor_last: None,
             virtual_cursor_last_unsticky: None,
             edge_bars_off: false,
+            ambient_bars_off: false,
             edge_bar_colours: None,
             edge_bar_scroll: 0.0,
             pad_cursor_enabled: false,
@@ -1761,6 +1765,17 @@ impl Window {
     /// shows instead, if enabled) or back on.
     pub fn set_edge_bars_off(&mut self, off: bool) {
         self.edge_bars_off = off;
+    }
+
+    /// Private fork, `--ambient-bars`: switch the glow off (black bars) or
+    /// back on.
+    pub fn set_ambient_bars_off(&mut self, off: bool) {
+        self.ambient_bars_off = off;
+    }
+
+    /// Private fork, `--ambient-bars`: whether the glow is switched off.
+    pub fn ambient_bars_off(&self) -> bool {
+        self.ambient_bars_off
     }
 
     /// Private fork, `--edge-bars-texture`: the picture, its size in screen

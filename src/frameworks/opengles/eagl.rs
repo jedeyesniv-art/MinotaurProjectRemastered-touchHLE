@@ -694,11 +694,12 @@ unsafe fn present_renderbuffer(env: &mut Environment, crop: [f32; 4]) {
             .starfield,
     );
     // The edge bars and starfield cover the whole of the bars, so the glow
-    // isn't needed.
+    // isn't needed. A pad module may switch it off (black bars).
+    let ambient_off = env.window().ambient_bars_off();
     let ambient_bars = env
         .options
         .ambient_bars
-        .filter(|_| edge_bars.is_none() && !starfield_bars);
+        .filter(|_| edge_bars.is_none() && !starfield_bars && !ambient_off);
     let screen_size = env.window.as_ref().unwrap().drawable_size();
 
     let gles_ctx = super::get_thread_context(
