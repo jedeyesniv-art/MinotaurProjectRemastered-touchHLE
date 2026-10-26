@@ -108,14 +108,60 @@ pub fn main() {
 
         embed_exe_icon(package_root, &out_dir);
     }
+
+    if std::env::var_os("CARGO_FEATURE_EMBEDDED_GAME").is_some() {
+        list_embedded_files(package_root, &out_dir);
+    }
+}
+
+/// Private fork, `embedded_game`: list the files staged in `embedded/` (by
+/// build-single-exe.ps1) for src/embedded.rs to build in, by their paths
+/// relative to it. The game, the options and the options help are built in
+/// by name there.
+fn list_embedded_files(package_root: &Path, out_dir: &Path) {
+    fn walk(dir: &Path, files: &mut Vec<PathBuf>) {
+        rerun_if_changed(dir);
+        let mut entries: Vec<PathBuf> =
+            std::fs::read_dir(dir).unwrap().map(|e| e.unwrap().path()).collect();
+        entries.sort();
+        for path in entries {
+            if path.is_dir() {
+                walk(&path, files);
+            } else {
+                rerun_if_changed(&path);
+                files.push(path);
+            }
+        }
+    }
+    let root = package_root.join("embedded");
+    let mut files = Vec::new();
+    walk(&root, &mut files);
+    let mut code = String::from("pub const RESOURCES: &[(&str, &[u8])] = &[\n");
+    for path in files {
+        let name = path.strip_prefix(&root).unwrap().to_str().unwrap().replace('\\', "/");
+        if matches!(name.as_str(), "game.ipa" | "game.ico" | "touchHLE_options.txt" | "OPTIONS_HELP.txt") {
+            continue;
+        }
+        writeln!(code, "    ({name:?}, include_bytes!({:?})),", path.to_str().unwrap()).unwrap();
+    }
+    code.push_str("];\n");
+    std::fs::write(out_dir.join("embedded_files.rs"), code).unwrap();
 }
 
 /// Private Gridrunner fork: compile res/gridrunner.rc with the Windows SDK's
 /// resource compiler and link it into the executable, giving it an icon.
+/// A single-exe build (`embedded_game`) uses the game's own icon,
+/// `embedded/game.ico`, when there is one.
 fn embed_exe_icon(package_root: &Path, out_dir: &Path) {
-    let rc_path = package_root.join("res/gridrunner.rc");
+    let mut rc_path = package_root.join("res/gridrunner.rc");
     rerun_if_changed(&rc_path);
     rerun_if_changed(&package_root.join("res/gridrunner.ico"));
+    let game_icon = package_root.join("embedded/game.ico");
+    if std::env::var_os("CARGO_FEATURE_EMBEDDED_GAME").is_some() && game_icon.exists() {
+        rerun_if_changed(&game_icon);
+        rc_path = out_dir.join("game.rc");
+        std::fs::write(&rc_path, format!("1 ICON {:?}\n", game_icon.to_str().unwrap())).unwrap();
+    }
 
     let rc_exe = std::env::var_os("RC").map(PathBuf::from).or_else(|| {
         let kits = Path::new(r"C:\Program Files (x86)\Windows Kits\10\bin");

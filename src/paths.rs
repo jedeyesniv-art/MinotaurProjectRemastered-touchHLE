@@ -56,10 +56,10 @@ fn get_macos_bundled_resources_path() -> Option<PathBuf> {
 pub struct ResourceFile {
     #[cfg(target_os = "android")]
     file: sdl2::rwops::RWops<'static>,
-    #[cfg(all(not(target_os = "android"), not(feature = "embedded_gridrunner")))]
+    #[cfg(all(not(target_os = "android"), not(feature = "embedded_game")))]
     file: std::fs::File,
     /// Private fork: built into the executable (see [crate::embedded]).
-    #[cfg(all(not(target_os = "android"), feature = "embedded_gridrunner"))]
+    #[cfg(all(not(target_os = "android"), feature = "embedded_game"))]
     file: std::io::Cursor<&'static [u8]>,
 }
 impl ResourceFile {
@@ -70,14 +70,14 @@ impl ResourceFile {
             #[cfg(target_os = "android")]
             file: sdl2::rwops::RWops::from_file(path, "r")?,
 
-            #[cfg(all(not(target_os = "android"), feature = "embedded_gridrunner"))]
+            #[cfg(all(not(target_os = "android"), feature = "embedded_game"))]
             file: std::io::Cursor::new(
                 crate::embedded::resource(path)
                     .ok_or_else(|| format!("{path} is not built into this executable"))?,
             ),
 
             // On other OSes, resources are accessed as ordinary files.
-            #[cfg(all(not(target_os = "android"), not(feature = "embedded_gridrunner")))]
+            #[cfg(all(not(target_os = "android"), not(feature = "embedded_game")))]
             file: {
                 let base_path = get_macos_bundled_resources_path();
                 // When not in a bundle, look in the current directory.
@@ -155,7 +155,7 @@ pub fn user_data_base_path() -> Cow<'static, Path> {
         }
         // Private fork: a single-file build keeps saves and options next to
         // itself, wherever it's started from.
-        #[cfg(feature = "embedded_gridrunner")]
+        #[cfg(feature = "embedded_game")]
         if let Some(dir) = std::env::current_exe().ok().and_then(|exe| Some(exe.parent()?.to_owned())) {
             return Cow::from(dir);
         }

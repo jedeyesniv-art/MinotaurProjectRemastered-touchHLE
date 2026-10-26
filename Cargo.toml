@@ -28,9 +28,9 @@ path = "src/bin.rs"
 
 [features]
 default = ["static"]
-# Private fork: build Gridrunner and touchHLE's resources into the executable
+# Private fork: build a game and touchHLE's resources into the executable
 # (see src/embedded.rs and build-single-exe.ps1).
-embedded_gridrunner = []
+embedded_game = []
 static = ["sdl2/bundled", "sdl2/static-link", "touchHLE_openal_soft_wrapper/static"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
