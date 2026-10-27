@@ -137,17 +137,17 @@ enum Action {
 
 fn action(screen: Screen, input: PadInput) -> Action {
     use PadInput as P;
+    // Not the stick: mashing it as a level ended tapped NEXT on the end
+    // screen while the held screen still said play.
     let left_paddle = matches!(
         input,
         P::Button(Button::X | Button::DPadLeft | Button::LeftShoulder | Button::LeftStick)
             | P::LeftTrigger
-            | P::StickLeft
     );
     let right_paddle = matches!(
         input,
         P::Button(Button::B | Button::DPadRight | Button::RightShoulder | Button::RightStick)
             | P::RightTrigger
-            | P::StickRight
     );
     let button = match input {
         P::Button(button) => Some(button),
@@ -187,11 +187,18 @@ fn finger_for(input: PadInput) -> FingerId {
     FingerId::Pad(index)
 }
 
+fn release(env: &mut Environment, input: PadInput) {
+    if let Some((finger, at)) = HELD.with(|h| h.borrow_mut().remove(&input)) {
+        ui_touch::handle_event(env, Event::TouchesUp(HashMap::from([(finger, at)])));
+    }
+}
+
 pub fn handle_input(env: &mut Environment, input: PadInput, down: bool) {
+    // A second press of a held input (the window forgets the stick's
+    // direction when the pointer comes and goes) lifts the old touch first:
+    // UIKit asserts on a finger going down twice while another is held.
+    release(env, input);
     if !down {
-        if let Some((finger, at)) = HELD.with(|h| h.borrow_mut().remove(&input)) {
-            ui_touch::handle_event(env, Event::TouchesUp(HashMap::from([(finger, at)])));
-        }
         return;
     }
     let screen = recognise_held(env);
@@ -223,5 +230,11 @@ pub fn frame(env: &mut Environment) {
         return;
     }
     let on_level_select = recognise_held(env) == Screen::LevelSelect;
+    if on_level_select {
+        // The pointer takes the stick over, so the stick's paddle touch
+        // would never be lifted.
+        release(env, PadInput::StickLeft);
+        release(env, PadInput::StickRight);
+    }
     env.window_mut().set_pad_cursor_enabled(on_level_select);
 }
