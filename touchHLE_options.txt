@@ -7,7 +7,7 @@
 #   --exit-button=                          pause: Exit; main menu: quit
 # Lines starting with # are ignored.
 
-uk.co.llamasoft.gridrunner: --device-family=ipad --disable-analog-stick-tilt-controls --stick-to-icade --icade-analog=0.1,1.35 --mouse-to-swipe=1 --swipe-origin=384,620 --button-to-touch=A,384,800 --button-to-touch=Y,384,432 --button-to-touch=X,384,432 --button-to-touch=DPadLeft,58,432 --button-to-touch=DPadRight,710,432 --button-to-touch=Start,384,307 --button-to-rotate=RightShoulder --rotate-three-ways --upright-landscape-right --exit-button=Back --landscape-button-to-touch=Start,512,285 --deadzone=0.18 --dpi-aware --nearest-present --nearest-textures --smooth-render-textures --sharp-scaling --bezel=gridrunner_bezel.png --move-to-margin=60,6,190,62 --move-to-margin=250,6,295,62 --move-to-margin=600,6,168,62 --fullscreen
+uk.co.llamasoft.gridrunner: --device-family=ipad --disable-analog-stick-tilt-controls --stick-to-icade --icade-analog=0.1,1.35 --mouse-to-swipe=1 --swipe-origin=384,620 --button-to-touch=A,384,800 --button-to-touch=Y,384,432 --button-to-touch=X,384,432 --button-to-touch=DPadLeft,58,432 --button-to-touch=DPadRight,710,432 --button-to-touch=Start,384,307 --button-to-rotate=RightShoulder --rotate-three-ways --upright-landscape-right --exit-button=Back --landscape-button-to-touch=Start,512,285 --deadzone=0.18 --dpi-aware --nearest-present --nearest-textures --smooth-render-textures --sharp-scaling --bezel=gridrunner_bezel.png --move-to-margin=60,6,190,62 --move-to-margin=250,6,295,62 --move-to-margin=600,6,168,62 --fullscreen --record-scores
 
 # Five A Day (testing)
 uk.co.llamasoft.tp: --device-family=ipad --dpi-aware --sharp-scaling --stick-to-icade --deadzone=0.18 --button-to-touch=A,384,512 --button-to-touch=Start,384,150 --exit-button=Back --bezel=fiveaday_bezel.png --fake-classes=OF --record-scores
@@ -16,7 +16,7 @@ uk.co.llamasoft.tp: --device-family=ipad --dpi-aware --sharp-scaling --stick-to-
 uk.co.llamasoft.deflex: --device-family=ipad --dpi-aware --sharp-scaling --ambient-bars --deflex-pad --disable-analog-stick-tilt-controls --fake-classes=OF --record-scores
 
 # Super Ox Wars (testing)
-uk.co.llamasoft.sf: --device-family=ipad --dpi-aware --sharp-scaling --stick-to-icade --deadzone=0.18 --button-to-touch=A,384,748 --button-to-touch=Start,384,135 --exit-button=Back --audio-resampler=bsinc24 --bezel=superoxwars_bezel.png
+uk.co.llamasoft.sf: --device-family=ipad --dpi-aware --sharp-scaling --stick-to-icade --deadzone=0.18 --button-to-touch=A,384,748 --button-to-touch=Start,384,135 --exit-button=Back --audio-resampler=bsinc24 --bezel=superoxwars_bezel.png --record-scores
 
 # Caverns of Minos (testing)
 uk.co.llamasoft.minos: --device-family=ipad --dpi-aware --sharp-scaling --stick-to-icade --deadzone=0.18 --minos-pad --right-stick-tilt --fake-classes=OF --edge-bars=10 --edge-bars-texture=minos_wall.png,2.6 --ambient-bars --record-scores
@@ -24,7 +24,7 @@ uk.co.llamasoft.minos: --device-family=ipad --dpi-aware --sharp-scaling --stick-
 # Goat Up
 uk.co.llamasoft.Goat: --device-family=ipad --dpi-aware --sharp-scaling --fake-classes=OF --goat-pad --left-stick-tilt=20 --deadzone=0.12 --starfield-bars --record-scores
 # Goat Up 2
-co.uk.llamasoft.Grunt: --device-family=ipad --dpi-aware --sharp-scaling --audio-resampler=bsinc24 --volume=0.5 --goat2-pad --left-stick-tilt=20 --deadzone=0.12 --starfield-bars=warp --trim-edges=2
+co.uk.llamasoft.Grunt: --device-family=ipad --dpi-aware --sharp-scaling --audio-resampler=bsinc24 --volume=0.5 --goat2-pad --left-stick-tilt=20 --deadzone=0.12 --starfield-bars=warp --trim-edges=2 --record-scores
 # Minotaur Rescue (iOS)
 uk.co.llamasoft.minorescue: --device-family=ipad --dpi-aware --sharp-scaling --fake-classes=OF --audio-resampler=bsinc24 --ambient-bars --fullscreen --rescue-pad --rescue-turn-fix --disable-analog-stick-tilt-controls --record-scores
 # Minotron 2112 (iOS)
