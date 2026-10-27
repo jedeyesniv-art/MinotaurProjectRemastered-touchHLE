@@ -416,11 +416,12 @@ Game controller options:
         e.g. --button-to-icade=A,1. Can be given more than once.
 
     --icade-analog=...
-        (Private Gridrunner fork.) Patches Gridrunner 1.02 so that, with
-        --stick-to-icade, the ship's speed follows how far the left stick is
-        pushed instead of the iCade's on/off directions. The value is how much
-        the ship may speed up per game tick, as a fraction of the game's full
-        speed (its own iCade movement uses 0.08), optionally followed by a top
+        (Private Gridrunner fork.) Patches Gridrunner 1.02 or Super Ox Wars so
+        that, with --stick-to-icade, the ship's speed follows how far the left
+        stick is pushed instead of the iCade's on/off directions. The value is
+        how much the ship may speed up per game tick, as a fraction of the
+        game's full speed (their own iCade movement uses 0.08 in Gridrunner,
+        0.15 in Super Ox Wars), optionally followed by a top
         speed (default 1, the game's own), e.g. --icade-analog=0.0625,1.25.
         Easing off, letting go and reversing take effect immediately.
 

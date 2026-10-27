@@ -8,7 +8,8 @@
 //! Gridrunner 1.02 (armv7) moves the ship with two velocities in [-1, 1] that
 //! its iCade code steps by 0.08 per tick while a direction is held. We replace
 //! that block with a call to [icade_analog], which eases them towards the left
-//! stick's position instead.
+//! stick's position instead. Super Ox Wars (same engine) has the same block,
+//! stepping by 0.15.
 //!
 //! Also `--exit-button=`: one button that taps Exit on the pause screen and
 //! quits from the main menu, telling the two apart by what's on screen.
@@ -16,27 +17,65 @@
 use crate::mem::{MutPtr, MutVoidPtr, Ptr};
 use crate::Environment;
 
-/// The iCade velocity block in the game's per-tick update, which starts with
-/// `tst.w r1, #0xf` (r1 = iCade state, r4 = the game struct).
-const BLOCK_START: u32 = 0x40416;
-const BLOCK_END: u32 = 0x4056c;
-const BLOCK_FIRST_INSTR: [u16; 2] = [0xf011, 0x0f0f];
+/// Where a game's iCade velocity block is and what it works on.
+struct Layout {
+    bundle_id: &'static str,
+    /// The block in the game's per-tick update (r4 = the game struct).
+    block_start: u32,
+    block_end: u32,
+    block_first_instr: [u16; 2],
+    /// Code after the call that restores registers live after the block, or
+    /// pads the literal that follows to a 4-byte boundary.
+    restore: &'static [u16],
+    /// Offsets into the game struct.
+    velocity_x: u32, // f64, -1 is left
+    velocity_y: u32, // f64, -1 is up
+    directions: u32, // iCade state bits: 1 up, 2 right, 4 down, 8 left
+}
 
-/// Offsets into the game struct.
-const VELOCITY_X: u32 = 0x35c; // f64, -1 is left
-const VELOCITY_Y: u32 = 0x364; // f64, -1 is up
-const DIRECTIONS: u32 = 0x36c; // iCade state bits: 1 up, 2 right, 4 down, 8 left
+const LAYOUTS: [Layout; 2] = [
+    // Starts with `tst.w r1, #0xf` (r1 = iCade state).
+    Layout {
+        bundle_id: "uk.co.llamasoft.gridrunner",
+        block_start: 0x40416,
+        block_end: 0x4056c,
+        block_first_instr: [0xf011, 0x0f0f],
+        restore: &[0xf8d4, 0x00f8], // ldr.w r0, [r4, #0xf8]
+        velocity_x: 0x35c,
+        velocity_y: 0x364,
+        directions: 0x36c,
+    },
+    // Super Ox Wars: starts with `tst.w r0, #0xa` (r0 = iCade state); only r4
+    // is live after it.
+    Layout {
+        bundle_id: "uk.co.llamasoft.sf",
+        block_start: 0x41a68,
+        block_end: 0x41bec,
+        block_first_instr: [0xf010, 0x0f0a],
+        restore: &[0xbf00], // nop (pads the literal to 4 bytes)
+        velocity_x: 0x29c,
+        velocity_y: 0x2a4,
+        directions: 0x2ac,
+    },
+];
+
+fn layout(env: &Environment) -> Option<&'static Layout> {
+    let id = env.bundle.bundle_identifier();
+    LAYOUTS.iter().find(|l| l.bundle_id == id)
+}
 
 pub fn apply_patch(env: &mut Environment) {
-    if env.options.icade_analog.is_none()
-        || env.bundle.bundle_identifier() != "uk.co.llamasoft.gridrunner"
-    {
+    if env.options.icade_analog.is_none() {
         return;
     }
-    let start: MutPtr<u16> = Ptr::from_bits(BLOCK_START);
-    if env.mem.read(start) != BLOCK_FIRST_INSTR[0] || env.mem.read(start + 1) != BLOCK_FIRST_INSTR[1]
+    let Some(layout) = layout(env) else {
+        return;
+    };
+    let start: MutPtr<u16> = Ptr::from_bits(layout.block_start);
+    if env.mem.read(start) != layout.block_first_instr[0]
+        || env.mem.read(start + 1) != layout.block_first_instr[1]
     {
-        log!("--icade-analog: unexpected code, is this Gridrunner 1.02? Not patching.");
+        log!("--icade-analog: unexpected code, is this the right version? Not patching.");
         return;
     }
 
@@ -48,32 +87,28 @@ pub fn apply_patch(env: &mut Environment) {
 
     // Thumb-2, replacing the start of the block:
     //   +0   mov r0, r4
-    //   +2   ldr r1, [pc, #8]       ; the literal at +14
+    //   +2   ldr r1, [pc, #8]       ; the literal
     //   +4   blx r1                 ; host stub is A32
-    //   +6   ldr.w r0, [r4, #0xf8]  ; r0 is live after the block
-    //   +10  b.w BLOCK_END
-    //   +14  .word host
-    const BRANCH_AT: u32 = BLOCK_START + 10;
-    const LITERAL_AT: u32 = BLOCK_START + 14;
-    const _: () = assert!(LITERAL_AT % 4 == 0);
-    let offset = BLOCK_END - (BRANCH_AT + 4);
+    //   +6   (restore)
+    //        b.w block_end
+    //        .word host             ; must be where the ldr looks
+    let restore_end = layout.block_start + 6 + 2 * layout.restore.len() as u32;
+    let branch_at = restore_end;
+    let literal_at = restore_end + 4;
+    assert!(literal_at == ((layout.block_start + 2 + 4) & !3) + 8);
+    let offset = layout.block_end - (branch_at + 4);
     assert!(offset < 0x1000 && offset % 2 == 0);
-    let code: [u16; 7] = [
-        0x4620,
-        0x4902,
-        0x4788,
-        0xf8d4,
-        0x00f8,
-        0xf000,
-        0xb800 | (offset >> 1) as u16,
-    ];
+    let mut code = vec![0x4620, 0x4902, 0x4788];
+    code.extend_from_slice(layout.restore);
+    code.extend_from_slice(&[0xf000, 0xb800 | (offset >> 1) as u16]);
     for (i, &halfword) in code.iter().enumerate() {
         env.mem.write(start + i as u32, halfword);
     }
-    let literal: MutPtr<u32> = Ptr::from_bits(LITERAL_AT);
+    let literal: MutPtr<u32> = Ptr::from_bits(literal_at);
     env.mem.write(literal, host.addr_with_thumb_bit());
-    env.cpu.invalidate_cache_range(BLOCK_START, BLOCK_END - BLOCK_START);
-    log!("--icade-analog: patched Gridrunner's iCade movement.");
+    env.cpu
+        .invalidate_cache_range(layout.block_start, layout.block_end - layout.block_start);
+    log!("--icade-analog: patched {}'s iCade movement.", layout.bundle_id);
 }
 
 /// Called by the patched game once per tick with its game struct.
@@ -82,9 +117,10 @@ fn icade_analog(env: &mut Environment, game: MutVoidPtr) {
     let (accel, top_speed) = (accel as f64, top_speed as f64);
     let (stick_x, stick_y) = env.window().left_stick(&env.options);
 
+    let layout = layout(env).unwrap();
     let game = game.to_bits();
-    let vx_ptr: MutPtr<f64> = Ptr::from_bits(game + VELOCITY_X);
-    let vy_ptr: MutPtr<f64> = Ptr::from_bits(game + VELOCITY_Y);
+    let vx_ptr: MutPtr<f64> = Ptr::from_bits(game + layout.velocity_x);
+    let vy_ptr: MutPtr<f64> = Ptr::from_bits(game + layout.velocity_y);
     // Only speeding up is gradual: easing off, letting go and reversing take
     // effect at once (a reversal keeps the speed the ship already had).
     let approach = |v: f64, stick: f32| {
@@ -112,7 +148,7 @@ fn icade_analog(env: &mut Environment, game: MutVoidPtr) {
     if vx < 0.0 {
         dirs |= 8;
     }
-    let dirs_ptr: MutPtr<u32> = Ptr::from_bits(game + DIRECTIONS);
+    let dirs_ptr: MutPtr<u32> = Ptr::from_bits(game + layout.directions);
     let state = env.mem.read(dirs_ptr);
     env.mem.write(dirs_ptr, (state & !0xf) | dirs);
 }

@@ -16,7 +16,7 @@ uk.co.llamasoft.tp: --device-family=ipad --dpi-aware --sharp-scaling --stick-to-
 uk.co.llamasoft.deflex: --device-family=ipad --dpi-aware --sharp-scaling --ambient-bars --deflex-pad --disable-analog-stick-tilt-controls --fake-classes=OF --record-scores
 
 # Super Ox Wars (testing)
-uk.co.llamasoft.sf: --device-family=ipad --dpi-aware --sharp-scaling --stick-to-icade --deadzone=0.18 --button-to-touch=A,384,748 --button-to-touch=Start,384,135 --exit-button=Back --audio-resampler=bsinc24 --bezel=superoxwars_bezel.png --record-scores
+uk.co.llamasoft.sf: --device-family=ipad --dpi-aware --sharp-scaling --stick-to-icade --icade-analog=0.15,1 --deadzone=0.18 --button-to-touch=A,384,748 --button-to-touch=Start,384,135 --exit-button=Back --audio-resampler=bsinc24 --bezel=superoxwars_bezel.png --record-scores
 
 # Caverns of Minos (testing)
 uk.co.llamasoft.minos: --device-family=ipad --dpi-aware --sharp-scaling --stick-to-icade --deadzone=0.18 --minos-pad --right-stick-tilt --fake-classes=OF --edge-bars=10 --edge-bars-texture=minos_wall.png,2.6 --ambient-bars --record-scores
