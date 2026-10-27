@@ -13,7 +13,7 @@
 use crate::cpu::Cpu;
 use crate::frameworks::foundation::ns_string;
 use crate::mem::{ConstPtr, MutPtr};
-use crate::objc::{id, nil};
+use crate::objc::{id, msg, nil};
 use crate::Environment;
 use std::io::Write;
 
@@ -161,6 +161,87 @@ pub fn post_running_score(env: &mut Environment) {
     env.mem.write(MutPtr::from_bits(object + score_at), score);
     env.mem.write(MutPtr::from_bits(object + category_at), category);
     env.mem.write(MutPtr::<u8>::from_bits(object + command_at), 2);
+}
+
+/// The Game Center games (Gridrunner, Super Ox Wars, Goat Up 2) keep scores
+/// waiting as bits in their engine's state, and their `minoViewController
+/// runSubmitter` posts the lowest one: bits 15 and up are scores (lower ones
+/// achievements and leaderboard loads). Game Center is missing, so `noGC` is
+/// set and it gives up. When a score is next, it's cleared for that one call,
+/// so the game's own code reaches `[gameCenterManager reportScore:forCategory:]`,
+/// which goes to nil and is caught by [nil_message].
+fn pending_offset(app_id: &str) -> Option<u32> {
+    match app_id {
+        "uk.co.llamasoft.gridrunner" | "uk.co.llamasoft.sf" => Some(0xc90),
+        "co.uk.llamasoft.Grunt" => Some(0xaf0),
+        _ => None,
+    }
+}
+
+thread_local! {
+    /// The view controller whose `noGC` was cleared, and its value.
+    static SUBMITTER: std::cell::Cell<Option<(id, u8)>> = const { std::cell::Cell::new(None) };
+}
+
+fn ivar(env: &Environment, object: id, name: &str) -> Option<MutPtr<u32>> {
+    env.objc.object_lookup_ivar(&env.mem, object, &name.to_string())
+}
+
+fn restore_no_gc(env: &mut Environment) {
+    if let Some((vc, no_gc)) = SUBMITTER.with(|s| s.take()) {
+        if let Some(ptr) = ivar(env, vc, "noGC") {
+            env.mem.write(ptr.cast::<u8>(), no_gc);
+        }
+    }
+}
+
+/// Called before every `runSubmitter` message.
+pub fn run_submitter(env: &mut Environment, receiver: id) {
+    let Some(pending_at) = pending_offset(env.bundle.bundle_identifier()) else {
+        return;
+    };
+    restore_no_gc(env);
+    let (Some(no_gc), Some(state)) = (ivar(env, receiver, "noGC"), ivar(env, receiver, "saveData"))
+    else {
+        return;
+    };
+    let state = env.mem.read(state);
+    let (Some(pending), Some(current)) =
+        (read_word(env, state + pending_at), read_word(env, state + pending_at + 4))
+    else {
+        return;
+    };
+    let no_gc = no_gc.cast::<u8>();
+    let was = env.mem.read(no_gc);
+    if was != 0 && current == 0 && pending != 0 && pending.trailing_zeros() >= 15 {
+        log!("Score waiting (bits {:#x}), letting runSubmitter post it", pending);
+        SUBMITTER.with(|s| s.set(Some((receiver, was))));
+        env.mem.write(no_gc, 0);
+    }
+}
+
+/// Called for every message to nil.
+pub fn nil_message(env: &mut Environment, selector: &str) {
+    if selector != "reportScore:forCategory:" {
+        return;
+    }
+    let Some((vc, _)) = SUBMITTER.with(|s| s.get()) else {
+        return;
+    };
+    // - reportScore:(int64_t)score forCategory:(NSString *)category
+    let regs = env.cpu.regs();
+    let score = (regs[2] as u64 | ((regs[3] as u64) << 32)) as i64;
+    let board: id = env.mem.read(ConstPtr::from_bits(regs[Cpu::SP]));
+    let board = if board == nil {
+        String::new()
+    } else {
+        ns_string::to_rust_string(env, board).to_string()
+    };
+    record(env, &board, score);
+    restore_no_gc(env);
+    // What Game Center's answer would do: clear the posted bit.
+    let error: id = nil;
+    let _: () = msg![env; vc scoreReported:error];
 }
 
 fn clean(text: &str) -> String {

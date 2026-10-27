@@ -187,8 +187,16 @@ fn objc_msgSend_inner(
     if receiver == nil {
         // https://developer.apple.com/library/archive/documentation/Cocoa/Conceptual/ObjectiveC/Chapters/ocObjectsClasses.html#//apple_ref/doc/uid/TP30001163-CH11-SW7
         log_dbg!("[nil {}]", selector.as_str(&env.mem));
+        // Private fork: --record-scores catches Game Center score reports.
+        if env.options.record_scores {
+            let selector_name = selector.as_str(&env.mem).to_string();
+            crate::scores::nil_message(env, &selector_name);
+        }
         env.cpu.regs_mut()[0..2].fill(0);
         return;
+    }
+    if env.options.record_scores && selector.as_str(&env.mem) == "runSubmitter" {
+        crate::scores::run_submitter(env, receiver);
     }
 
     let orig_class = super2.unwrap_or_else(|| ObjC::read_isa(receiver, &env.mem));
