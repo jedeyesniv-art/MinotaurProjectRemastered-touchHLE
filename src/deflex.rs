@@ -70,7 +70,7 @@ fn recognise(env: &mut Environment) -> Screen {
     if PAUSE_BUTTONS.iter().all(|&rect| score(env, rect, white) > 0.06) {
         return Screen::Pause;
     }
-    let (left, middle, right) = (
+    let (left, middle, _) = (
         score(env, BOTTOM_LEFT, blue),
         score(env, BOTTOM_MIDDLE, blue),
         score(env, BOTTOM_RIGHT, blue),
@@ -84,7 +84,10 @@ fn recognise(env: &mut Environment) -> Screen {
     if score(env, BOTTOM_RIGHT, play_blue) > 0.5 && left < 0.05 && middle < 0.05 {
         return Screen::LevelSelect;
     }
-    if score(env, CORNER_LEFT, blue) > 0.06 && score(env, CORNER_RIGHT, blue) > 0.06 {
+    // The paddle buttons are see-through, so a bright field tints them (on
+    // green, 0.07-0.08 pass `blue`): a looser blue-over-the-rest test.
+    let paddle_blue = |r: u8, g: u8, b: u8| b > 150 && b > g.saturating_add(60) && b > r.saturating_add(60);
+    if score(env, CORNER_LEFT, paddle_blue) > 0.06 && score(env, CORNER_RIGHT, paddle_blue) > 0.06 {
         return Screen::Play;
     }
     if score(env, LOGO, light) > 0.12 {
@@ -95,7 +98,9 @@ fn recognise(env: &mut Environment) -> Screen {
 
 /// [recognise], but a screen recognised in the last [SCREEN_HOLD] stays
 /// that screen while the check sees nothing it knows, until another screen
-/// is recognised. The game strobes and pulses (PLAY, the field behind the
+/// is recognised. Play stays play however long that takes: a pressed paddle
+/// flashes red, and every way out of play (pause, end of level) is
+/// recognised. The game strobes and pulses (PLAY, the field behind the
 /// paddle buttons), so one frame that fails its colour test can't drop the
 /// pointer mid-drag, stop Back quitting or lose a paddle press.
 fn recognise_held(env: &mut Environment) -> Screen {
@@ -104,6 +109,7 @@ fn recognise_held(env: &mut Environment) -> Screen {
     LAST_SCREEN.with(|last| {
         let mut last = last.borrow_mut();
         match (screen, *last) {
+            (Screen::Other, Some((Screen::Play, _))) => Screen::Play,
             (Screen::Other, Some((held, t))) if now - t < SCREEN_HOLD => held,
             (Screen::Other, _) => {
                 *last = None;

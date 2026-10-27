@@ -90,6 +90,10 @@ pub struct Options {
     pub sharp_scaling: bool,
     /// Private fork: Gridrunner's exit/quit button.
     pub exit_button: Option<Button>,
+    /// Private fork: `--record-scores`, see `scores.rs`.
+    pub record_scores: bool,
+    /// Private fork: `--player-name=`, recorded with each score.
+    pub player_name: String,
     /// Private fork: see `--retry-button=` in OPTIONS_HELP.txt.
     pub retry_button: Option<Button>,
     /// Private fork: see `--deflex-pad` in OPTIONS_HELP.txt.
@@ -229,6 +233,8 @@ impl Default for Options {
             smooth_render_textures: false,
             sharp_scaling: false,
             exit_button: None,
+            record_scores: false,
+            player_name: "Player".to_string(),
             retry_button: None,
             deflex_pad: false,
             fake_classes: Vec::new(),
@@ -312,6 +318,13 @@ impl Options {
             self.fullscreen = true;
         // Private fork: the launcher's settings, given on the command line
         // (so after the options file) to undo parts of a game's options.
+        } else if arg == "--record-scores" {
+            self.record_scores = true;
+        } else if let Some(name) = arg.strip_prefix("--player-name=") {
+            let name = name.trim();
+            if !name.is_empty() {
+                self.player_name = name.chars().take(24).collect();
+            }
         } else if arg == "--windowed" {
             self.fullscreen = false;
         } else if arg == "--plain-bars" {

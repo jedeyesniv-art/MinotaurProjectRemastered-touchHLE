@@ -45,6 +45,7 @@ mod minos;
 mod goat;
 mod goat2;
 mod rescue;
+mod scores;
 mod gridrunner;
 mod image;
 mod libc;

@@ -301,6 +301,10 @@ Type mismatch when sending message {} to {:?}!
             is_metaclass,
         }) = host_object.as_any().downcast_ref()
         {
+            // Private fork: --record-scores catches faked score submissions.
+            let name = name.clone();
+            let selector_name = selector.as_str(&env.mem).to_string();
+            crate::scores::faked_call(env, &name, &selector_name);
             log!(
                 "Call to faked class \"{}\" ({:?}) {} method \"{}\". Behaving as if message was sent to nil.",
                 name,
