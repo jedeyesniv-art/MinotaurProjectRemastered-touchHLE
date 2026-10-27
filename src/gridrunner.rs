@@ -224,6 +224,7 @@ fn five_a_day_exit_button_action(env: &mut Environment) -> ScreenAction {
     let touch = read_screen_pixels(env, FIVE_A_DAY_TOUCH_TO_PLAY).map(|p| fraction(&p, lavender));
     log!("Exit button: Exit sign {:?}, LOCAL HISCORE {:?}, TOUCH TO PLAY {:?}", exit, hiscore, touch);
     if exit.is_some_and(|f| f > 0.3) {
+        crate::scores::post_running_score(env);
         ScreenAction::Tap(FIVE_A_DAY_EXIT_TAP)
     } else if hiscore.is_some_and(|f| f > 0.06) && touch.is_some_and(|f| f > 0.08) {
         ScreenAction::Quit

@@ -237,6 +237,9 @@ pub fn handle_input(env: &mut Environment, input: PadInput, down: bool) {
     }
     let screen = recognise(env);
     log!("Minos pad: {:?} on {:?}", button, screen);
+    if matches!((&screen, button), (Screen::Pause, Button::Back)) {
+        crate::scores::post_running_score(env);
+    }
     match action(screen, button) {
         Action::Tap(at) => {
             let finger = FingerId::Pad(button as u8);

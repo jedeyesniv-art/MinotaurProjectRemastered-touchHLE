@@ -329,6 +329,9 @@ pub fn handle_input(env: &mut Environment, input: PadInput, down: bool) {
     if !matches!((input, &action), (PadInput::StickLeft | PadInput::StickRight, Action::Nothing)) {
         log!("Rescue pad: {:?} on {:?}", input, screen);
     }
+    if matches!(screen, Screen::Pause) && matches!(action, Action::Tap(at) if at == QUIT_GAME) {
+        crate::scores::post_running_score(env);
+    }
     let point = match action {
         Action::Tap(point) => point,
         Action::Step { row_y, by } => {
