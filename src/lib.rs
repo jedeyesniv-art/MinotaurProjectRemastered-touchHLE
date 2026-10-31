@@ -44,6 +44,7 @@ mod deflex;
 mod minos;
 mod goat;
 mod goat2;
+mod minotron;
 mod rescue;
 mod scores;
 mod gridrunner;

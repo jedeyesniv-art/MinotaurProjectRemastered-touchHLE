@@ -114,6 +114,8 @@ pub struct Options {
     pub goat2_pad: bool,
     /// Private fork: see `--rescue-pad` in OPTIONS_HELP.txt.
     pub rescue_pad: bool,
+    /// Private fork: see `--minotron-pad` in OPTIONS_HELP.txt.
+    pub minotron_pad: bool,
     /// Private fork: `--rescue-pad`'s finger speed at full tilt, in screen
     /// heights per second.
     pub rescue_touch_speed: f32,
@@ -244,6 +246,7 @@ impl Default for Options {
             goat_pad: false,
             goat2_pad: false,
             rescue_pad: false,
+            minotron_pad: false,
             rescue_touch_speed: 1.0,
             rescue_turn_fix: false,
             right_stick_tilt: None,
@@ -459,6 +462,8 @@ impl Options {
             self.goat2_pad = true;
         } else if arg == "--rescue-pad" {
             self.rescue_pad = true;
+        } else if arg == "--minotron-pad" {
+            self.minotron_pad = true;
         } else if arg == "--rescue-turn-fix" {
             self.rescue_turn_fix = true;
         } else if let Some(value) = arg.strip_prefix("--rescue-touch-speed=") {

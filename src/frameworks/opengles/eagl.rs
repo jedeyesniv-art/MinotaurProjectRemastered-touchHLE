@@ -325,6 +325,9 @@ pub const CLASSES: ClassExports = objc_classes! {
     if env.options.rescue_pad {
         crate::rescue::frame(env);
     }
+    if env.options.minotron_pad {
+        crate::minotron::frame(env);
+    }
     if env.options.exit_button.is_some() {
         crate::frameworks::uikit::screen_button_frame(env);
     }

@@ -752,7 +752,7 @@ impl Window {
 
             // Private fork: --deflex-pad and --rescue-pad take over the
             // controller.
-            if options.deflex_pad || options.rescue_pad {
+            if options.deflex_pad || options.rescue_pad || options.minotron_pad {
                 if let Some(pad_event) = self.deflex_pad_event(&event) {
                     if let Some(pad_event) = pad_event {
                         self.event_queue.push_back(pad_event);
@@ -1147,13 +1147,13 @@ impl Window {
                     keycode: Some(sdl2::keyboard::Keycode::Escape),
                     repeat: false,
                     ..
-                } if options.deflex_pad || options.minos_pad || options.goat_pad || options.goat2_pad || options.rescue_pad => {
+                } if options.deflex_pad || options.minos_pad || options.goat_pad || options.goat2_pad || options.rescue_pad || options.minotron_pad => {
                     Event::PadInput(PadInput::Button(sdl2::controller::Button::Back), true)
                 }
                 E::KeyUp {
                     keycode: Some(sdl2::keyboard::Keycode::Escape),
                     ..
-                } if options.deflex_pad || options.minos_pad || options.goat_pad || options.goat2_pad || options.rescue_pad => {
+                } if options.deflex_pad || options.minos_pad || options.goat_pad || options.goat2_pad || options.rescue_pad || options.minotron_pad => {
                     Event::PadInput(PadInput::Button(sdl2::controller::Button::Back), false)
                 }
                 E::KeyDown {
@@ -1207,7 +1207,7 @@ impl Window {
             }
         }
 
-        if options.deflex_pad || options.goat2_pad || options.rescue_pad {
+        if options.deflex_pad || options.goat2_pad || options.rescue_pad || options.minotron_pad {
             self.update_pad_cursor(options);
             return;
         }
@@ -1614,6 +1614,16 @@ impl Window {
         let axis = |v: i16| (v as f32 / i16::MAX as f32).clamp(-1.0, 1.0);
         self.controllers.iter().fold((0.0, 0.0), |(x, y), c| {
             (x + axis(c.axis(Axis::LeftX)), y + axis(c.axis(Axis::LeftY)))
+        })
+    }
+
+    /// Private fork, `--minotron-pad`: the right stick's position with no
+    /// deadzone, each axis in [-1, 1].
+    pub fn right_stick_raw(&self) -> (f32, f32) {
+        use sdl2::controller::Axis;
+        let axis = |v: i16| (v as f32 / i16::MAX as f32).clamp(-1.0, 1.0);
+        self.controllers.iter().fold((0.0, 0.0), |(x, y), c| {
+            (x + axis(c.axis(Axis::RightX)), y + axis(c.axis(Axis::RightY)))
         })
     }
 
