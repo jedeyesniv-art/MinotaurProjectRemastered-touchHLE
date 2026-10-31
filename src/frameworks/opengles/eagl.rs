@@ -611,6 +611,18 @@ struct Es2PresentState {
     enabled_attrib_arrays: Vec<GLuint>,
 }
 
+/// Private fork: logs any pending GL error at a point in the presentation
+/// code, the first few times only (for drivers that differ from the PC's,
+/// like Mesa on the Steam Deck).
+unsafe fn log_gl_error(gles: &mut dyn GLES, place: &str) {
+    use std::sync::atomic::{AtomicU32, Ordering};
+    static LOGGED: AtomicU32 = AtomicU32::new(0);
+    let err = gles.GetError();
+    if err != 0 && LOGGED.fetch_add(1, Ordering::Relaxed) < 40 {
+        log!("Warning: GL error {:#x} at present: {}", err, place);
+    }
+}
+
 unsafe fn save_and_reset_es2_state(gles: &mut dyn GLES) -> Es2PresentState {
     const CURRENT_PROGRAM: GLenum = 0x8B8D;
     const MAX_VERTEX_ATTRIBS: GLenum = 0x8869;
@@ -739,7 +751,9 @@ unsafe fn present_renderbuffer(env: &mut Environment, crop: [f32; 4]) {
     // The presentation code below uses the fixed-function pipeline, so an
     // OpenGL ES 2.0 app's program, texture unit and generic vertex arrays
     // must be set aside first (generic attribute 0 aliases the vertex array).
+    log_gl_error(gles, "start (left by the app)");
     let es2_state = gles.is_es2().then(|| save_and_reset_es2_state(gles));
+    log_gl_error(gles, "after setting the ES2 state aside");
 
     // To avoid confusing the guest app, we need to be able to undo any
     // state changes we make.
@@ -812,7 +826,19 @@ unsafe fn present_renderbuffer(env: &mut Environment, crop: [f32; 4]) {
         }
         old_capabilities
     };
-    let old_matrix_mode: GLenum = get_int(gles, gles11::MATRIX_MODE) as _;
+    log_gl_error(gles, "after the frame copy and state backup");
+    let mut old_matrix_mode: GLenum = get_int(gles, gles11::MATRIX_MODE) as _;
+    log_gl_error(gles, "reading the matrix mode");
+    // Mesa under Proton (Steam Deck) has been seen to give back a mode that
+    // isn't one of these; fall back to the default rather than stop.
+    if ![gles11::MODELVIEW, gles11::PROJECTION, gles11::TEXTURE].contains(&old_matrix_mode) {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        static WARNED: AtomicBool = AtomicBool::new(false);
+        if !WARNED.swap(true, Ordering::Relaxed) {
+            log!("Warning: GL gave matrix mode {:#x}, using MODELVIEW", old_matrix_mode);
+        }
+        old_matrix_mode = gles11::MODELVIEW;
+    }
     for mode in [gles11::MODELVIEW, gles11::PROJECTION, gles11::TEXTURE] {
         gles.MatrixMode(mode);
         gles.PushMatrix();
@@ -1000,6 +1026,7 @@ unsafe fn present_renderbuffer(env: &mut Environment, crop: [f32; 4]) {
     if let Some(es2_state) = es2_state {
         restore_es2_state(gles, es2_state);
     }
+    log_gl_error(gles, "end");
 
     // { let err = gles.GetError(); if err != 0 { panic!("{:#x}", err); } }
 
