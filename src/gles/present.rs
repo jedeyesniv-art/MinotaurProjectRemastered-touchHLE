@@ -884,6 +884,72 @@ pub unsafe fn upload_pattern(gles: &mut dyn GLES, image: &crate::image::Image) -
     texture
 }
 
+/// Private fork, `--record-achievements`: upload the achievement banner
+/// (RGBA, premultiplied) to a new texture; the binding is left changed.
+pub unsafe fn upload_banner(gles: &mut dyn GLES, pixels: &[u8], (width, height): (u32, u32)) -> u32 {
+    let mut texture = 0;
+    gles.GenTextures(1, &mut texture);
+    gles.BindTexture(gles11::TEXTURE_2D, texture);
+    gles.TexImage2D(
+        gles11::TEXTURE_2D,
+        0,
+        gles11::RGBA as _,
+        width as _,
+        height as _,
+        0,
+        gles11::RGBA,
+        gles11::UNSIGNED_BYTE,
+        pixels.as_ptr() as *const _,
+    );
+    gles.TexParameteri(gles11::TEXTURE_2D, gles11::TEXTURE_MIN_FILTER, gles11::LINEAR as _);
+    gles.TexParameteri(gles11::TEXTURE_2D, gles11::TEXTURE_MAG_FILTER, gles11::LINEAR as _);
+    gles.TexParameteri(gles11::TEXTURE_2D, gles11::TEXTURE_WRAP_S, gles11::CLAMP_TO_EDGE as _);
+    gles.TexParameteri(gles11::TEXTURE_2D, gles11::TEXTURE_WRAP_T, gles11::CLAMP_TO_EDGE as _);
+    texture
+}
+
+/// Private fork, `--record-achievements`: draw the banner upright across the
+/// top of the picture (`viewport`), `alpha` opaque. Called after
+/// [present_frame], whose state `eagl.rs` puts back afterwards.
+pub unsafe fn draw_banner(
+    gles: &mut dyn GLES,
+    viewport: (u32, u32, u32, u32),
+    texture: u32,
+    (width, height): (u32, u32),
+    alpha: f32,
+) {
+    use gles11::types::*;
+    let (vx, vy, vw, vh) = viewport;
+    gles.Viewport(vx as _, vy as _, vw as _, vh as _);
+    // 80% of the picture's width (60% of a wide one), 4% from its top
+    let bw = vw as f32 * if vw > vh { 0.6 } else { 0.8 };
+    let bh = bw * height as f32 / width as f32;
+    let (x0, x1) = ((vw as f32 - bw) / 2.0, (vw as f32 + bw) / 2.0);
+    let (y0, y1) = (vh as f32 * 0.04, vh as f32 * 0.04 + bh);
+    let nx = |x: f32| x / (vw as f32 / 2.0) - 1.0;
+    let ny = |y: f32| 1.0 - y / (vh as f32 / 2.0);
+    let vertices: [f32; 12] = [
+        nx(x0), ny(y1), nx(x0), ny(y0), nx(x1), ny(y1), nx(x1), ny(y1), nx(x0), ny(y0), nx(x1), ny(y0),
+    ];
+    let tex_coords: [f32; 12] = [0.0, 1.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0, 0.0, 0.0, 1.0, 0.0];
+    gles.BindTexture(gles11::TEXTURE_2D, texture);
+    gles.MatrixMode(gles11::TEXTURE);
+    gles.LoadIdentity();
+    gles.EnableClientState(gles11::VERTEX_ARRAY);
+    gles.VertexPointer(2, gles11::FLOAT, 0, vertices.as_ptr() as *const GLvoid);
+    gles.EnableClientState(gles11::TEXTURE_COORD_ARRAY);
+    gles.TexCoordPointer(2, gles11::FLOAT, 0, tex_coords.as_ptr() as *const GLvoid);
+    gles.Enable(gles11::TEXTURE_2D);
+    gles.Enable(gles11::BLEND);
+    gles.BlendFunc(gles11::ONE, gles11::ONE_MINUS_SRC_ALPHA);
+    // premultiplied: fade every channel together
+    let modulate = [gles11::MODULATE as GLint];
+    gles.TexEnviv(gles11::TEXTURE_ENV, gles11::TEXTURE_ENV_MODE, modulate.as_ptr());
+    gles.Color4f(alpha, alpha, alpha, alpha);
+    gles.DrawArrays(gles11::TRIANGLES, 0, 6);
+    gles.Color4f(1.0, 1.0, 1.0, 1.0);
+}
+
 /// Private fork: upload a bezel picture to a new texture in the current
 /// context, with mipmaps so it shrinks cheaply and cleanly on smaller screens.
 /// The texture binding is left changed.

@@ -15,7 +15,7 @@ use crate::frameworks::foundation::NSUInteger;
 use crate::gles::gles11_raw as gles11; // constants only
 use crate::gles::gles11_raw::types::*;
 use crate::gles::present::{
-    present_frame, upload_bezel, upload_pattern, Ambient, AmbientGlow, Bezel, EdgeBars,
+    draw_banner, present_frame, upload_banner, upload_bezel, upload_pattern, Ambient, AmbientGlow, Bezel, EdgeBars,
     EdgeBarsArgs, EdgePattern, FpsCounter, SharpScaler, Starfield, StarfieldArgs,
 };
 use crate::gles::{create_gles1_ctx, create_gles2_ctx, gles1_on_gl2, GLESContext, GLES};
@@ -72,6 +72,8 @@ pub(super) struct EAGLContextHostObject {
     pub mapped_buffers: HashMap<GLuint, (MutPtr<GLvoid>, *mut GLvoid)>,
     /// Private fork: this context's copy of the `--bezel` picture.
     bezel_texture: Option<GLuint>,
+    /// Private fork: the achievement banner's texture and its number.
+    banner_texture: Option<(GLuint, u32)>,
     /// Private fork: see `--sharp-scaling`.
     sharp_scaler: SharpScaler,
     /// Private fork: see `--ambient-bars`.
@@ -100,6 +102,7 @@ pub const CLASSES: ClassExports = objc_classes! {
         next_frame_due: None,
         mapped_buffers: HashMap::new(),
         bezel_texture: None,
+        banner_texture: None,
         sharp_scaler: SharpScaler::default(),
         ambient_glow: AmbientGlow::default(),
         edge_bars: EdgeBars::default(),
@@ -680,6 +683,10 @@ unsafe fn present_renderbuffer(env: &mut Environment, crop: [f32; 4]) {
         .objc
         .borrow::<EAGLContextHostObject>(current_ctx)
         .bezel_texture;
+    let mut banner_texture = env
+        .objc
+        .borrow::<EAGLContextHostObject>(current_ctx)
+        .banner_texture;
     let mut sharp_scaler = env
         .objc
         .borrow::<EAGLContextHostObject>(current_ctx)
@@ -942,6 +949,17 @@ unsafe fn present_renderbuffer(env: &mut Environment, crop: [f32; 4]) {
         }),
         env.options.trim_edges,
     );
+    // Private fork, --record-achievements: the unlock banner over the picture,
+    // its texture made again for each new banner.
+    crate::achievements::banner(|number, pixels, size, alpha| {
+        if banner_texture.map(|(_, n)| n) != Some(number) {
+            if let Some((old, _)) = banner_texture {
+                gles.DeleteTextures(1, &old);
+            }
+            banner_texture = Some((upload_banner(gles, pixels, size), number));
+        }
+        draw_banner(gles, viewport, banner_texture.unwrap().0, size, alpha);
+    });
     if crate::perf_log::enabled() {
         crate::perf_log::present_end(present_started.elapsed());
     }
@@ -1033,6 +1051,7 @@ unsafe fn present_renderbuffer(env: &mut Environment, crop: [f32; 4]) {
     std::mem::drop(gles_boxed);
     let host_object = env.objc.borrow_mut::<EAGLContextHostObject>(current_ctx);
     host_object.bezel_texture = bezel_texture;
+    host_object.banner_texture = banner_texture;
     host_object.sharp_scaler = sharp_scaler;
     host_object.ambient_glow = ambient_glow;
     host_object.edge_bars = edge_bars_state;
