@@ -31,6 +31,9 @@ default = ["static"]
 # Private fork: build a game and touchHLE's resources into the executable
 # (see src/embedded.rs and build-single-exe.ps1).
 embedded_game = []
+# Private fork: like embedded_game, but without the game: the exe finds the
+# player's own IPA in a Games folder (the public build, see src/embedded.rs).
+external_game = ["embedded_game"]
 static = ["sdl2/bundled", "sdl2/static-link", "touchHLE_openal_soft_wrapper/static"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html

@@ -156,6 +156,19 @@ impl BundleData {
         Ok(BundleData::Zip { zip, bundle_path })
     }
 
+    /// Private fork: the app ID and version (`CFBundleVersion`) of the app in
+    /// an IPA file, read from its Info.plist without opening the rest.
+    pub fn ipa_identity(path: &Path) -> Option<(String, String)> {
+        let mut zip = ZipArchive::new(IpaSource::File(std::fs::File::open(path).ok()?)).ok()?;
+        let plist_path = format!("{}/Info.plist", Self::find_bundle_path_in_archive(&mut zip).ok()?);
+        let mut bytes = Vec::new();
+        zip.by_name(&plist_path).ok()?.read_to_end(&mut bytes).ok()?;
+        let plist = plist::Value::from_reader(Cursor::new(bytes)).ok()?;
+        let dict = plist.as_dictionary()?;
+        let get = |key: &str| dict.get(key).and_then(|v| v.as_string()).unwrap_or("").to_string();
+        Some((get("CFBundleIdentifier"), get("CFBundleVersion")))
+    }
+
     pub fn open_any(path: &Path) -> Result<BundleData, String> {
         if path.is_file()
             && path

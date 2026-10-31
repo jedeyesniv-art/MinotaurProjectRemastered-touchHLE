@@ -14,6 +14,10 @@
 //! options, files the options name such as a bezel) by its usual relative
 //! path, listed by build.rs. Saves and the user's options still live next
 //! to the executable.
+//!
+//! The `external_game` feature (the public build) leaves the game out: the
+//! exe knows only its app ID, version and name (`game_id.txt`) and plays the
+//! player's own IPA, found by app ID in a `Games` folder (see [find_game]).
 
 use crate::fs::BundleData;
 
@@ -41,8 +45,14 @@ mod files {
     pub const USER_FILES: &[(&str, &[u8])] =
         &[embed!("touchHLE_options.txt"), embed!("OPTIONS_HELP.txt")];
 
+    #[cfg(not(feature = "external_game"))]
     pub const GAME_IPA: &[u8] =
         include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/embedded/game.ipa"));
+
+    /// The game's app ID, version and name, a line each.
+    #[cfg(feature = "external_game")]
+    pub const GAME_ID: &str =
+        include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/embedded/game_id.txt"));
 }
 
 /// A built-in file by its usual relative path, if there is one. The games
@@ -72,7 +82,9 @@ pub fn resource(_path: &str) -> Option<&'static [u8]> {
 
 /// Open the built-in game.
 pub fn open_game() -> Result<BundleData, String> {
-    #[cfg(feature = "embedded_game")]
+    #[cfg(feature = "external_game")]
+    return find_game();
+    #[cfg(all(feature = "embedded_game", not(feature = "external_game")))]
     return BundleData::open_ipa_bytes(files::GAME_IPA);
     #[cfg(not(feature = "embedded_game"))]
     return Err("This build has no built-in app.".to_string());
@@ -143,4 +155,77 @@ fn add_missing_options_line(app_id: &str) {
         Ok(()) => echo!("Added this game's options to {}", path.display()),
         Err(e) => echo!("Warning: Couldn't add this game's options to {}: {}", path.display(), e),
     }
+}
+
+/// Open the player's own copy of the game: the first IPA with this exe's app
+/// ID in `Games` beside the exe, `Games` one folder up (beside the launcher)
+/// or the exe's own folder, whatever its file name. Another version still
+/// runs, with a warning in the log (the code patches check what they patch).
+/// If there's none, says where to put it.
+#[cfg(feature = "external_game")]
+fn find_game() -> Result<BundleData, String> {
+    let mut lines = files::GAME_ID.lines().map(str::trim);
+    let (id, version, name) = (
+        lines.next().unwrap_or(""),
+        lines.next().unwrap_or(""),
+        lines.next().unwrap_or("the game"),
+    );
+    let exe_dir = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|p| p.to_path_buf()))
+        .unwrap_or_default();
+    let mut dirs = vec![exe_dir.join("Games")];
+    if let Some(up) = exe_dir.parent() {
+        dirs.push(up.join("Games"));
+    }
+    dirs.push(exe_dir.clone());
+    for dir in &dirs {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            continue;
+        };
+        let mut ipas: Vec<_> = entries
+            .filter_map(|e| e.ok().map(|e| e.path()))
+            .filter(|p| p.extension().is_some_and(|x| x.eq_ignore_ascii_case("ipa")))
+            .collect();
+        ipas.sort();
+        for path in ipas {
+            let Some((ipa_id, ipa_version)) = BundleData::ipa_identity(&path) else {
+                continue;
+            };
+            if ipa_id != id {
+                continue;
+            }
+            echo!("Playing {}", path.display());
+            if ipa_version != version {
+                log!(
+                    "Warning: this IPA is version {}, but this exe was made for version {}. It may not play right.",
+                    ipa_version,
+                    version
+                );
+            }
+            return BundleData::open_ipa(&path);
+        }
+    }
+    // the launcher's Games folder if there is one, else the exe's
+    let games = dirs[..dirs.len() - 1]
+        .iter()
+        .rev()
+        .find(|d| d.is_dir())
+        .unwrap_or(&dirs[0]);
+    let message = format!(
+        "Couldn't find {name}.
+
+Put your own decrypted {name} IPA (version {version}, app ID {id}) in this folder:
+{}
+
+Any file name will do.",
+        games.display()
+    );
+    let _ = sdl2::messagebox::show_simple_message_box(
+        sdl2::messagebox::MessageBoxFlag::INFORMATION,
+        name,
+        &message,
+        None,
+    );
+    Err(message)
 }
