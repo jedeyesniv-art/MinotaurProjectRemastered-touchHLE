@@ -165,8 +165,8 @@ pub fn post_running_score(env: &mut Environment) {
 
 /// The Game Center games (Gridrunner, Super Ox Wars, Goat Up 2) keep scores
 /// waiting as bits in their engine's state, and their `minoViewController
-/// runSubmitter` posts the lowest one: bits 15 and up are scores (lower ones
-/// achievements and leaderboard loads). Game Center is missing, so `noGC` is
+/// runSubmitter` posts the lowest one: bits 15 and up are scores, 0-9
+/// achievements (`--record-achievements`), 10-14 leaderboard loads. Game Center is missing, so `noGC` is
 /// set and it gives up. When a score is next, it's cleared for that one call,
 /// so the game's own code reaches `[gameCenterManager reportScore:forCategory:]`,
 /// which goes to nil and is caught by [nil_message].
@@ -213,8 +213,11 @@ pub fn run_submitter(env: &mut Environment, receiver: id) {
     };
     let no_gc = no_gc.cast::<u8>();
     let was = env.mem.read(no_gc);
-    if was != 0 && current == 0 && pending != 0 && pending.trailing_zeros() >= 15 {
-        log!("Score waiting (bits {:#x}), letting runSubmitter post it", pending);
+    let low = pending.trailing_zeros();
+    let wanted = (low >= 15 && env.options.record_scores) || (low < 10 && env.options.record_achievements);
+    if was != 0 && current == 0 && pending != 0 && wanted {
+        let what = if low >= 15 { "Score" } else { "Achievement" };
+        log!("{} waiting (bits {:#x}), letting runSubmitter post it", what, pending);
         SUBMITTER.with(|s| s.set(Some((receiver, was))));
         env.mem.write(no_gc, 0);
     }
@@ -222,6 +225,10 @@ pub fn run_submitter(env: &mut Environment, receiver: id) {
 
 /// Called for every message to nil.
 pub fn nil_message(env: &mut Environment, selector: &str) {
+    if selector == "submitAchievement:percentComplete:" {
+        achievement_submitted(env);
+        return;
+    }
     if selector != "reportScore:forCategory:" {
         return;
     }
@@ -242,6 +249,23 @@ pub fn nil_message(env: &mut Environment, selector: &str) {
     // What Game Center's answer would do: clear the posted bit.
     let error: id = nil;
     let _: () = msg![env; vc scoreReported:error];
+}
+
+/// `[gameCenterManager submitAchievement:(NSString *)id percentComplete:100]`
+/// went to nil: records it, then does what Game Center's answer would.
+fn achievement_submitted(env: &mut Environment) {
+    let Some((vc, _)) = SUBMITTER.with(|s| s.get()) else {
+        return;
+    };
+    let achievement = id::from_bits(env.cpu.regs()[2]);
+    if achievement != nil {
+        let achievement = ns_string::to_rust_string(env, achievement).to_string();
+        crate::achievements::record(env, &achievement);
+    }
+    restore_no_gc(env);
+    // clears the posted bit
+    let (achievement, error): (id, id) = (nil, nil);
+    let _: () = msg![env; vc achievementSubmitted:achievement error:error];
 }
 
 fn clean(text: &str) -> String {

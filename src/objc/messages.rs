@@ -187,15 +187,19 @@ fn objc_msgSend_inner(
     if receiver == nil {
         // https://developer.apple.com/library/archive/documentation/Cocoa/Conceptual/ObjectiveC/Chapters/ocObjectsClasses.html#//apple_ref/doc/uid/TP30001163-CH11-SW7
         log_dbg!("[nil {}]", selector.as_str(&env.mem));
-        // Private fork: --record-scores catches Game Center score reports.
-        if env.options.record_scores {
+        // Private fork: --record-scores and --record-achievements catch Game
+        // Center reports and OpenFeint achievement progress.
+        if env.options.record_scores || env.options.record_achievements {
             let selector_name = selector.as_str(&env.mem).to_string();
             crate::scores::nil_message(env, &selector_name);
+            crate::achievements::nil_message(env, &selector_name);
         }
         env.cpu.regs_mut()[0..2].fill(0);
         return;
     }
-    if env.options.record_scores && selector.as_str(&env.mem) == "runSubmitter" {
+    if (env.options.record_scores || env.options.record_achievements)
+        && selector.as_str(&env.mem) == "runSubmitter"
+    {
         crate::scores::run_submitter(env, receiver);
     }
 
@@ -313,6 +317,7 @@ Type mismatch when sending message {} to {:?}!
             let name = name.clone();
             let selector_name = selector.as_str(&env.mem).to_string();
             crate::scores::faked_call(env, &name, &selector_name);
+            crate::achievements::faked_call(env, &name, &selector_name);
             log!(
                 "Call to faked class \"{}\" ({:?}) {} method \"{}\". Behaving as if message was sent to nil.",
                 name,

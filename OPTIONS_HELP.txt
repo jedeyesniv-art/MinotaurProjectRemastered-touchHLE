@@ -213,6 +213,13 @@ View options:
         It does nothing anywhere else, e.g. --exit-button=Back. The Esc key does
         the same. (The pad modules quit with Back and Esc too.)
 
+    --record-achievements
+        (Private fork.) OpenFeint and Game Center are gone, so the games'
+        achievement unlocks go nowhere; with this, each unlock is added to
+        touchHLE_achievements.txt in the touchHLE folder (time, app ID,
+        achievement ID, player name from --player-name), which the launcher
+        reads. Needs --fake-classes=OF for the OpenFeint games.
+
     --record-scores
         (Private fork.) With OpenFeint faked (--fake-classes=OF), add each score
         the game submits to touchHLE_scores.txt in the touchHLE folder (time,

@@ -46,6 +46,7 @@ mod goat;
 mod goat2;
 mod minotron;
 mod rescue;
+mod achievements;
 mod scores;
 mod gridrunner;
 mod image;

@@ -92,6 +92,8 @@ pub struct Options {
     pub exit_button: Option<Button>,
     /// Private fork: `--record-scores`, see `scores.rs`.
     pub record_scores: bool,
+    /// Private fork: see `--record-achievements` in OPTIONS_HELP.txt.
+    pub record_achievements: bool,
     /// Private fork: `--player-name=`, recorded with each score.
     pub player_name: String,
     /// Private fork: see `--retry-button=` in OPTIONS_HELP.txt.
@@ -245,6 +247,7 @@ impl Default for Options {
             sharp_scaling: false,
             exit_button: None,
             record_scores: false,
+            record_achievements: false,
             player_name: "Player".to_string(),
             retry_button: None,
             deflex_pad: false,
@@ -346,6 +349,8 @@ impl Options {
         // (so after the options file) to undo parts of a game's options.
         } else if arg == "--record-scores" {
             self.record_scores = true;
+        } else if arg == "--record-achievements" {
+            self.record_achievements = true;
         } else if let Some(name) = arg.strip_prefix("--player-name=") {
             let name = name.trim();
             if !name.is_empty() {
