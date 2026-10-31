@@ -4,12 +4,14 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
 //! Private fork: `--minos-pad`, controller support for Caverns of Minos that
-//! follows what's on screen. The left stick is the game's own iCade joystick
-//! (`--stick-to-icade`); the window reports every controller button
-//! ([crate::window::Event::PadInput]), and each press looks at the screen and
-//! either holds a touch on the right button for as long as it's held, holds
-//! the iCade button, or quits. In play the right trigger thrusts too, in
-//! pulses that get longer the further it's pulled (see [frame]).
+//! follows what's on screen. In play the left stick is the game's own iCade
+//! joystick (`--stick-to-icade`); on the title, menu, info pages and pause
+//! it moves a pointer instead, and A touches. The window reports every other
+//! controller button ([crate::window::Event::PadInput]), and each press looks
+//! at the screen and either holds a touch on the right button for as long as
+//! it's held, holds the iCade button, or quits. In play the right trigger
+//! thrusts too, in pulses that get longer the further it's pulled (see
+//! [frame]).
 //!
 //! Screens are told apart by colour, measured on the user's screenshots and
 //! our own captures (fractions of a box, portrait 768x1024 points):
@@ -113,8 +115,11 @@ enum Action {
 }
 
 fn action(screen: Screen, button: Button) -> Action {
+    // A only gets here where there's no pointer (play and the in-between
+    // screens); Start does what A did on the pointer's screens.
     match (screen, button) {
-        (Screen::Info, Button::A) => Action::Tap(MORE_TAP),
+        (Screen::Info, Button::Start) => Action::Tap(MORE_TAP),
+        (Screen::Title | Screen::Menu, Button::Start) => Action::ICade,
         (_, Button::A) => Action::ICade,
         (Screen::Title | Screen::Menu, Button::Back) => Action::Quit,
         (Screen::Info, Button::B | Button::Back) => Action::Tap(INFO_OR_DONE_TAP),
@@ -148,7 +153,7 @@ struct Thrust {
     frame: u32,
 }
 
-/// How often (in frames) to check the screen for the bars.
+/// How often (in frames) to check the screen for the pointer and the bars.
 const BARS_CHECK_FRAMES: u32 = 10;
 
 thread_local! {
@@ -172,19 +177,25 @@ fn set_icade(env: &mut Environment, update: impl FnOnce(&mut Thrust)) {
     }
 }
 
-/// Called each frame: the bars (every few frames, the `--ambient-bars` glow on
-/// the menu and info pages, whose blue buttons would make odd `--edge-bars`,
-/// and the cavern walls carried outwards everywhere else) and the right
-/// trigger's thrust.
+/// Called each frame: every few frames the pointer (on the title, menu, info
+/// pages and pause) and the bars (the `--ambient-bars` glow on the menu and
+/// info pages, whose blue buttons would make odd `--edge-bars`, and the
+/// cavern walls carried outwards everywhere else); and the right trigger's
+/// thrust.
 pub fn frame(env: &mut Environment) {
     let n = FRAMES.with(|f| {
         let mut f = f.borrow_mut();
         *f = f.wrapping_add(1);
         *f
     });
-    if env.options.edge_bars.is_some() && n % BARS_CHECK_FRAMES == 0 {
-        let glow = matches!(recognise(env), Screen::Menu | Screen::Info);
-        env.window_mut().set_edge_bars_off(glow);
+    if n % BARS_CHECK_FRAMES == 0 {
+        let screen = recognise(env);
+        let pointer = matches!(screen, Screen::Title | Screen::Menu | Screen::Info | Screen::Pause);
+        env.window_mut().set_pad_cursor_enabled(pointer);
+        if env.options.edge_bars.is_some() {
+            let glow = matches!(screen, Screen::Menu | Screen::Info);
+            env.window_mut().set_edge_bars_off(glow);
+        }
     }
     let pull = env.window().right_trigger();
     let pulled = THRUST.with(|t| t.borrow().pulled);

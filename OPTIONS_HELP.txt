@@ -107,13 +107,16 @@ View options:
 
     --minos-pad
         (Private fork, Caverns of Minos.) Controller support that follows
-        what's on screen, alongside --stick-to-icade: A is the iCade button
-        (thrust in play, select in menus) except on the info pages, where it
-        presses MORE; B (or Esc) quits from the title or menu, presses DONE on
-        the info pages and QUIT when paused; Start pauses and unpauses; on the
-        menu X presses INFO and d-pad left/right the difficulty - and +. In
-        play the right trigger thrusts too: fully pulled it holds thrust, and
-        part pulled it pulses it, longer pulses the further it's pulled.
+        what's on screen, alongside --stick-to-icade. On the title, menu,
+        info pages and pause the left stick moves a pointer and A touches;
+        Start is the iCade button on the title and menu (select) and MORE on
+        the info pages. In play the left stick is the iCade joystick and A
+        the iCade button (thrust). Back (or Esc) quits from the title or
+        menu, presses DONE on the info pages (B too) and QUIT when paused;
+        Start pauses and unpauses; on the menu X presses INFO and d-pad
+        left/right the difficulty - and +. In play the right trigger
+        thrusts too: fully pulled it holds thrust, and part pulled it pulses
+        it, longer pulses the further it's pulled.
 
     --audio-resampler=NAME
         (Private fork.) How an Audio Unit's sound (a game's own mixer, e.g.

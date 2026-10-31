@@ -1207,7 +1207,7 @@ impl Window {
             }
         }
 
-        if options.deflex_pad || options.goat2_pad || options.rescue_pad || options.minotron_pad {
+        if options.deflex_pad || options.goat2_pad || options.rescue_pad || options.minotron_pad || options.minos_pad {
             self.update_pad_cursor(options);
             return;
         }
@@ -1542,7 +1542,13 @@ impl Window {
         let threshold = if options.icade_analog.is_some() { 0.0 } else { 0.35 };
 
         let (x, y, _) = self.get_controller_stick(options, true);
-        let held = [y < -threshold, x > threshold, y > threshold, x < -threshold];
+        // Private fork: while the menu pointer is shown the stick is its,
+        // so the directions let go.
+        let held = if self.pad_cursor_enabled {
+            [false; 4]
+        } else {
+            [y < -threshold, x > threshold, y > threshold, x < -threshold]
+        };
         let mut text = String::new();
         for i in 0..4 {
             if held[i] != self.icade_dirs[i] {
