@@ -165,25 +165,14 @@ View options:
         (Private fork, Minotaur Rescue iOS.) Controller support that follows
         what's on screen: in play the left stick strokes a virtual finger
         (like the PC beta's TOUCHY stick), Start double-taps the sun to
-        pause and A taps the middle (game over); on the title A begins and B
-        (or Esc) quits; main menu A PLAY, X INFO, Y the game select banner, B
-        quits; info A/X/Y its three pages, B BACK; on those pages the stick
-        scrolls and A or B is BACK; level select d-pad the level, X SURVIVAL, A START, B BACK;
-        pause Start UNPAUSE, B QUIT GAME, d-pad the audio level.
-
-    --minotron-pad
-        (Private fork, Minotron: 2112 iOS 1.01.) Twin-stick controller
-        support through the game's own iCade code: in play the left stick
-        moves (analog, up to the game's touch speed), the right stick aims
-        the shots in 8 directions and Start taps the score bar to pause;
-        on game over A, Start or Back goes back to the menu.
-        Everywhere else the left stick moves a pointer and A touches; the
-        d-pad changes difficulty and level. Back (or Esc) quits from the
-        main menu, taps BACK on the info page and level select and QUIT
-        GAME on the pause screen, where Start unpauses, and presses an
-        iCade button elsewhere (it leaves the INFO text pages). With
-        --ambient-bars, the bars are black in play and on pause. Use with
-        --disable-analog-stick-tilt-controls.
+        pause and A taps the middle (game over). Everywhere else the left
+        stick moves a pointer and A touches (held, it drags, which scrolls
+        the text pages). Title: Start begins, Back (or Esc) quits; main
+        menu Start PLAY, X INFO, Y the game select banner, Back quits; info
+        Start/X/Y its three pages, B or Back BACK; text pages B or Back
+        BACK; level select d-pad the level, X SURVIVAL, Start START, B or
+        Back BACK; pause Start UNPAUSE, Back QUIT GAME, d-pad the audio
+        level.
 
     --rescue-turn-fix
         (Private fork, Minotaur Rescue iOS 1.0.) Fixes the game's ship turn,

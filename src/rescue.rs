@@ -4,10 +4,12 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
 //! Private fork: `--rescue-pad`, controller support for Minotaur Rescue
-//! (iOS) that follows what's on screen. Buttons tap the menus' buttons; in
-//! play the left stick drives a virtual finger that strokes the way the
-//! stick points, like the PC beta's TOUCHY `touch_stick` (ported from
-//! `tools\d3d9-limiter\d3d9_limiter.c`, with the user's settled tuning).
+//! (iOS) that follows what's on screen. In play the left stick drives a
+//! virtual finger that strokes the way the stick points, like the PC beta's
+//! TOUCHY `touch_stick` (ported from `tools\d3d9-limiter\d3d9_limiter.c`,
+//! with the user's settled tuning). Everywhere else the left stick moves a
+//! pointer and A touches (held, it drags: the text pages scroll so); Start,
+//! X, Y, B, Back and the d-pad tap the screen's buttons.
 //!
 //! Screens are told apart by colour, measured on the user's screenshots
 //! (landscape 1024x768 points as the user sees them):
@@ -122,11 +124,6 @@ const TOUCH_RELEASE: f32 = 0.0;
 const TOUCH_FLIP: f32 = 170.0;
 const VIEW: (f32, f32) = (1024.0, 768.0);
 const DT: f32 = 1.0 / 60.0;
-/// Text pages: the stick drags the text up to this fast (points a second),
-/// with a finger between these heights.
-const SCROLL_SPEED: f32 = 700.0;
-const SCROLL_TOP: f32 = 150.0;
-const SCROLL_BOTTOM: f32 = 620.0;
 
 fn score(env: &mut Environment, rect: Rect, test: impl Fn(u8, u8, u8) -> bool) -> f32 {
     let rect = from_view_rect(env, rect);
@@ -199,8 +196,6 @@ struct State {
     /// Frames to keep the finger off (after a pause tap).
     finger_off: u32,
     finger: Finger,
-    /// The text page scroll finger's height, while it's down.
-    scroll: Option<f32>,
 }
 
 thread_local! {
@@ -254,17 +249,17 @@ fn action(screen: Screen, input: PadInput) -> Action {
         _ => None,
     };
     match (screen, button) {
-        (Screen::Title | Screen::Attract, Some(B::A | B::Start)) => Action::Tap(MIDDLE),
+        (Screen::Title | Screen::Attract, Some(B::Start)) => Action::Tap(MIDDLE),
         (Screen::Title | Screen::Attract | Screen::MainMenu, Some(B::Back)) => Action::Quit,
-        (Screen::MainMenu, Some(B::A | B::Start)) => Action::Tap(MENU_PLAY_TAP),
+        (Screen::MainMenu, Some(B::Start)) => Action::Tap(MENU_PLAY_TAP),
         (Screen::MainMenu, Some(B::X)) => Action::Tap(MENU_INFO),
         (Screen::MainMenu, Some(B::Y)) => Action::Tap(MENU_SELECT_GAME),
-        (Screen::Info, Some(B::A)) => Action::Tap(INFO_ABOUT_GAME),
+        (Screen::Info, Some(B::Start)) => Action::Tap(INFO_ABOUT_GAME),
         (Screen::Info, Some(B::X)) => Action::Tap(INFO_ABOUT_LLAMASOFT),
         (Screen::Info, Some(B::Y)) => Action::Tap(INFO_MINOTAUR_PROJECT),
         (Screen::Info, Some(B::B | B::Back)) => Action::Tap(BACK),
-        (Screen::TextPage, Some(B::A | B::B | B::Back)) => Action::Tap(TEXT_BACK),
-        (Screen::LevelSelect, Some(B::A | B::Start)) => Action::Tap(LEVEL_START),
+        (Screen::TextPage, Some(B::B | B::Back)) => Action::Tap(TEXT_BACK),
+        (Screen::LevelSelect, Some(B::Start)) => Action::Tap(LEVEL_START),
         (Screen::LevelSelect, Some(B::B | B::Back)) => Action::Tap(BACK),
         (Screen::LevelSelect, Some(B::X)) => Action::Tap(LEVEL_SURVIVAL),
         (Screen::LevelSelect, _) if left => Action::Step { row_y: LEVEL_ROW_Y, by: -1 },
@@ -302,7 +297,6 @@ fn finger_for(input: PadInput) -> FingerId {
 
 const STROKE_FINGER: FingerId = FingerId::Pad(200);
 const PAUSE_FINGER: FingerId = FingerId::Pad(201);
-const SCROLL_FINGER: FingerId = FingerId::Pad(202);
 
 fn touch(env: &mut Environment, finger: FingerId, point: (f32, f32), phase: u8) {
     let at = from_view_point(env, point);
@@ -400,43 +394,11 @@ pub fn frame(env: &mut Environment) {
         // and menus.
         let black = matches!(screen, Screen::Play | Screen::Pause | Screen::Attract);
         env.window_mut().set_ambient_bars_off(black);
+        // The pointer everywhere but play (the window gives it A and the
+        // left stick while it's shown).
+        env.window_mut().set_pad_cursor_enabled(screen != Screen::Play);
     }
     finger_frame(env);
-    scroll_frame(env);
-}
-
-/// Text pages: the stick's up and down drag the text, pushing down reading
-/// on (the finger drags up). At the edge of its room the finger lifts and
-/// goes down again at the other end.
-fn scroll_frame(env: &mut Environment) {
-    let on_page = STATE.with(|s| s.borrow().screen == Some(Screen::TextPage));
-    let sy = if on_page { env.window().left_stick_raw().1 } else { 0.0 };
-    let was = STATE.with(|s| s.borrow().scroll);
-    if sy.abs() < TOUCH_DEAD {
-        if let Some(y) = was {
-            touch(env, SCROLL_FINGER, (512.0, y), 2);
-            STATE.with(|s| s.borrow_mut().scroll = None);
-        }
-        return;
-    }
-    let strength = ((sy.abs() - TOUCH_DEAD) / (1.0 - TOUCH_DEAD)).min(1.0).powf(1.5);
-    match was {
-        None => {
-            let y = if sy > 0.0 { SCROLL_BOTTOM } else { SCROLL_TOP };
-            touch(env, SCROLL_FINGER, (512.0, y), 0);
-            STATE.with(|s| s.borrow_mut().scroll = Some(y));
-        }
-        Some(y) => {
-            let y = y - sy.signum() * strength * SCROLL_SPEED * DT;
-            if !(SCROLL_TOP..=SCROLL_BOTTOM).contains(&y) {
-                touch(env, SCROLL_FINGER, (512.0, y.clamp(SCROLL_TOP, SCROLL_BOTTOM)), 2);
-                STATE.with(|s| s.borrow_mut().scroll = None);
-            } else {
-                touch(env, SCROLL_FINGER, (512.0, y), 1);
-                STATE.with(|s| s.borrow_mut().scroll = Some(y));
-            }
-        }
-    }
 }
 
 /// The virtual finger (in landscape points) and the stick between frames:
