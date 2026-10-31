@@ -175,7 +175,8 @@ View options:
         (Private fork, Minotron: 2112 iOS 1.01.) Twin-stick controller
         support through the game's own iCade code: in play the left stick
         moves (analog, up to the game's touch speed), the right stick aims
-        the shots in 8 directions and Start taps the score bar to pause.
+        the shots in 8 directions and Start taps the score bar to pause;
+        on game over A, Start or Back goes back to the menu.
         Everywhere else the left stick moves a pointer and A touches; the
         d-pad changes difficulty and level. Back (or Esc) quits from the
         main menu, taps BACK on the info page and level select and QUIT

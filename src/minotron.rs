@@ -31,16 +31,19 @@
 //!   0.34; 0 elsewhere, but a yellow LEVEL alone once passed on an info
 //!   text page). Play holds for a few checks without them (explosions,
 //!   level changes).
+//! - game over: play's score bar and the big yellow GAME OVER (0.40; at
+//!   most 0.05 elsewhere). A touch there goes back to the menu.
 //! - main menu: magenta INFO, cyan PLAY and the blue TOUCH TO SELECT GAME
 //!   MODE along the top (0.27+ / 0.22+ / 0.27+; the level select has the
 //!   first two too, but no blue line)
 //! - level select: magenta BACK where INFO is, blue SELECT LEVEL (0.26)
 //! - info: blue BACK where INFO is (0.37; the attract demo up to 0.24) and
 //!   the yellow ABOUT MINOTRON: 2112 (0.26; the demo up to 0.06)
-//! - anything else: the title, the attract demo, game over and the text
+//! - anything else: the title, the attract demo and the text
 //!   pages from INFO, which have no button: an iCade button press leaves
 //!   them (as A did in the PC beta), so Back gives one there.
-//! Everywhere but play the left stick moves a pointer and A touches.
+//! Everywhere but play and game over the left stick moves a pointer and A
+//! touches.
 
 use crate::frameworks::opengles::eagl::read_screen_pixels;
 use crate::frameworks::uikit::{handle_text_input, ui_application, ui_touch};
@@ -85,6 +88,7 @@ const UNPAUSE_BOX: Rect = (370, 325, 340, 50);
 const QUIT_BOX: Rect = (320, 582, 440, 50);
 const LEVEL_LABEL: Rect = (440, 15, 110, 40);
 const LIVES_LABEL: Rect = (740, 15, 105, 40);
+const GAME_OVER: Rect = (330, 200, 420, 45);
 const INFO_BOX: Rect = (225, 665, 80, 40);
 const PLAY_BOX: Rect = (710, 665, 85, 40);
 const TOP_LINE: Rect = (140, 5, 780, 25);
@@ -135,6 +139,7 @@ pub fn apply_patch(env: &mut Environment) {
 enum Screen {
     Play,
     Pause,
+    GameOver,
     MainMenu,
     LevelSelect,
     Info,
@@ -185,6 +190,7 @@ fn recognise_colours(env: &mut Environment) -> Screen {
         score(env, QUIT_BOX, magenta),
         score(env, LEVEL_LABEL, yellow),
         score(env, LIVES_LABEL, magenta),
+        score(env, GAME_OVER, yellow),
         score(env, INFO_BOX, magenta),
         score(env, INFO_BOX, blue),
         score(env, PLAY_BOX, cyan),
@@ -193,9 +199,11 @@ fn recognise_colours(env: &mut Environment) -> Screen {
         score(env, ABOUT_LINE, yellow),
     ];
     log_dbg!("Minotron pad scores: {:?}", scores);
-    let [unpause, quit, level, lives, info_magenta, info_blue, play, top, second, about] = scores;
+    let [unpause, quit, level, lives, game_over, info_magenta, info_blue, play, top, second, about] = scores;
     if unpause > 0.2 && quit > 0.2 {
         Screen::Pause
+    } else if level > 0.15 && lives > 0.15 && game_over > 0.2 {
+        Screen::GameOver
     } else if level > 0.15 && lives > 0.15 {
         Screen::Play
     } else if info_magenta > 0.15 && play > 0.1 && top > 0.12 {
@@ -214,7 +222,7 @@ fn screen_now(env: &mut Environment) -> Screen {
     STATE.with(|s| {
         let mut s = s.borrow_mut();
         match colours {
-            Screen::Play | Screen::Pause => {
+            Screen::Play | Screen::Pause | Screen::GameOver => {
                 s.playing = true;
                 s.misses = 0;
                 colours
@@ -242,6 +250,17 @@ fn tick(env: &mut Environment, player: MutVoidPtr) {
     let engine: u32 = env.mem.read(Ptr::<u32, false>::from_bits(player + PLAYER_ENGINE));
     let save: u32 = env.mem.read(Ptr::<u32, false>::from_bits(engine + ENGINE_SAVE));
     let icade_ptr: MutPtr<u32> = Ptr::from_bits(save + SAVE_ICADE);
+    // The word is part of the save data, which the game saves during play:
+    // bits held then (our aim) come back held at the next boot, and held
+    // buttons made the menus take any touch as PLAY. Nothing is held at
+    // boot, so clear it at the first update (the attract demo's).
+    if STATE.with(|s| s.borrow().icade.is_none()) {
+        let stale = env.mem.read(icade_ptr);
+        if stale != 0 {
+            log!("Minotron pad: clearing iCade bits {:#x} left in the save data", stale);
+            env.mem.write(icade_ptr, 0);
+        }
+    }
     let icade = env.mem.read(icade_ptr);
     let vx_ptr: MutPtr<f64> = Ptr::from_bits(player + PLAYER_VX);
     let vy_ptr: MutPtr<f64> = Ptr::from_bits(player + PLAYER_VY);
@@ -335,10 +354,10 @@ pub fn frame(env: &mut Environment) {
             log!("Minotron pad: screen {:?}", screen);
         }
         let play = screen == Screen::Play;
-        env.window_mut().set_pad_cursor_enabled(!play);
+        env.window_mut().set_pad_cursor_enabled(!play && screen != Screen::GameOver);
         // Play's black field and colourful sprites make a messy glow: black
         // bars there, the glow everywhere else.
-        env.window_mut().set_ambient_bars_off(play || screen == Screen::Pause);
+        env.window_mut().set_ambient_bars_off(matches!(screen, Screen::Play | Screen::Pause | Screen::GameOver));
     }
 
     let (fire, icade, ticking) = STATE.with(|s| {
@@ -378,6 +397,7 @@ fn action(screen: Screen, button: Button) -> Action {
     use Button as B;
     match (screen, button) {
         (Screen::Play, B::Start) => Action::Tap(SCORE_BAR),
+        (Screen::GameOver, B::A | B::Start | B::Back) => Action::Tap(SCORE_BAR),
         (Screen::Pause, B::Start) => Action::Tap(UNPAUSE),
         (Screen::Pause, B::Back) => Action::Tap(QUIT_GAME),
         (Screen::MainMenu, B::Back) => Action::Quit,
@@ -398,8 +418,8 @@ pub fn handle_input(env: &mut Environment, input: PadInput, down: bool) {
         }
         return;
     }
-    // A goes to the pointer outside play (the window takes it), and does
-    // nothing in play; the left stick's left/right events only come in play,
+    // A goes to the pointer outside play and game over (the window takes
+    // it), and does nothing in play; the left stick's left/right events only come in play,
     // where the stick moves.
     let PadInput::Button(button) = input else { return };
     let letters = match button {

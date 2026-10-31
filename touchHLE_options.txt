@@ -28,4 +28,4 @@ co.uk.llamasoft.Grunt: --device-family=ipad --dpi-aware --sharp-scaling --audio-
 # Minotaur Rescue (iOS)
 uk.co.llamasoft.minorescue: --device-family=ipad --dpi-aware --sharp-scaling --fake-classes=OF --audio-resampler=bsinc24 --ambient-bars --fullscreen --rescue-pad --rescue-turn-fix --disable-analog-stick-tilt-controls --record-scores
 # Minotron 2112 (iOS)
-uk.co.llamasoft.minotron: --device-family=ipad --dpi-aware --sharp-scaling --fake-classes=OF --audio-resampler=bsinc24 --ambient-bars --fullscreen --minotron-pad --disable-analog-stick-tilt-controls
+uk.co.llamasoft.minotron: --device-family=ipad --dpi-aware --sharp-scaling --fake-classes=OF --audio-resampler=bsinc24 --ambient-bars --fullscreen --minotron-pad --disable-analog-stick-tilt-controls --record-scores
