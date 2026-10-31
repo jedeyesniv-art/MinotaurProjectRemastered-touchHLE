@@ -145,6 +145,9 @@ pub struct Options {
     /// Private fork: see `--two-player=` in OPTIONS_HELP.txt: the player (1
     /// or 2) in the launcher's two-player mode.
     pub two_player: Option<u8>,
+    /// Private fork: see `--pad=` in OPTIONS_HELP.txt: the pad slot (SDL's
+    /// player index) a --two-player game listens to, if not N-1.
+    pub pad: Option<i32>,
     /// Private fork: see `--window-rect=` in OPTIONS_HELP.txt: a borderless
     /// window at (x, y, width, height), laid out like fullscreen.
     pub window_rect: Option<(i32, i32, u32, u32)>,
@@ -264,6 +267,7 @@ impl Default for Options {
             audio_resampler: None,
             volume: None,
             two_player: None,
+            pad: None,
             window_rect: None,
             perf_log: None,
             screenshot_every: None,
@@ -362,6 +366,8 @@ impl Options {
             self.plain_bars();
             self.mouse_to_swipe = None;
             self.volume = Some(self.volume.unwrap_or(1.0) * 0.7);
+        } else if let Some(value) = arg.strip_prefix("--pad=") {
+            self.pad = Some(value.parse().map_err(|_| "--pad= needs a slot number".to_string())?);
         } else if let Some(value) = arg.strip_prefix("--window-rect=") {
             let parts: Vec<i64> = value.split(',').filter_map(|v| v.trim().parse().ok()).collect();
             let [x, y, w, h] = parts[..] else {

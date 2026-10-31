@@ -237,11 +237,17 @@ View options:
 
     --two-player=N
         (Private fork.) Player N (1 or 2) of the launcher's two-player mode:
-        only the pad in XInput slot N is used, and it keeps working while
+        only one pad is used (see --pad), and it keeps working while
         another window has the focus; the bars are plain black, the sound
         is at 70% and Gridrunner doesn't grab the mouse. Player 2 keeps its
         own saves (touchHLE_sandbox_p2) and log (touchHLE_log_p2.txt), so
         both players can run the same game. Give it on the command line.
+
+    --pad=SLOT
+        (Private fork.) With --two-player, the pad to listen to: SDL's player
+        index (0 for the first pad; an Xbox pad's XInput slot). Without it,
+        player N uses slot N-1. The launcher passes the slot of the pad that
+        chose each player.
 
     --window-rect=X,Y,WIDTH,HEIGHT
         (Private fork.) A borderless window at that place and size, in

@@ -351,8 +351,9 @@ pub struct Window {
     device_orientation: DeviceOrientation,
     controller_ctx: sdl2::GameControllerSubsystem,
     controllers: Vec<sdl2::controller::GameController>,
-    /// Private fork: `--two-player=N`: only the pad in XInput slot N-1 (SDL's
-    /// player index) is used; the others' instance IDs are ignored.
+    /// Private fork: `--two-player=N`: only the pad in slot `--pad` (SDL's
+    /// player index, the XInput slot for Xbox pads; N-1 if not given) is
+    /// used; the others' instance IDs are ignored.
     pad_slot: Option<i32>,
     ignored_pads: Vec<u32>,
     /// Private fork: `--window-rect=`: the window stays where it was put.
@@ -484,6 +485,9 @@ impl Window {
                 .window(title, width, height)
                 .position(x, y)
                 .borderless()
+                // above the launcher behind it, which a click on the other
+                // half would otherwise raise over this game
+                .always_on_top()
                 .opengl()
                 .build()
                 .unwrap()
@@ -591,7 +595,9 @@ impl Window {
             device_orientation,
             controller_ctx,
             controllers: Vec::new(),
-            pad_slot: options.two_player.map(|player| player as i32 - 1),
+            pad_slot: options
+                .two_player
+                .map(|player| options.pad.unwrap_or(player as i32 - 1)),
             ignored_pads: Vec::new(),
             fixed_window: options.window_rect.is_some(),
             dpad_state: DpadState {
