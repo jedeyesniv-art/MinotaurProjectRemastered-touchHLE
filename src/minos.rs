@@ -22,8 +22,10 @@
 //! - menu: blue difficulty - and NEW GAME buttons (0.83 and 0.73; 0 elsewhere)
 //! - info pages: blue DONE and MORE buttons (0.74; the menu has blue there
 //!   too, so it's checked first)
-//! - play: the green left ends of the Shield and Fuel bars (1.0; 0 on the
-//!   title, menu and info pages). Checked after pause, which shows them too.
+//! - play: the green "Shield:" and "Fuel:" labels (0.30 each). Not the bars
+//!   beside them: those turn orange and olive as shield and fuel run down
+//!   (0 green on the user's screenshot), which lost pause and RT thrust.
+//!   Checked after pause, which shows them too.
 
 use crate::frameworks::opengles::eagl::read_screen_pixels;
 use crate::frameworks::uikit::{handle_text_input, ui_application, ui_touch};
@@ -53,8 +55,8 @@ const MENU_DIFFICULTY_MINUS: Rect = (5, 520, 60, 90);
 const MENU_NEW_GAME: Rect = (5, 770, 60, 80);
 const BOTTOM_LEFT: Rect = (5, 945, 60, 70);
 const BOTTOM_RIGHT: Rect = (703, 945, 60, 70);
-const SHIELD_BAR: Rect = (350, 76, 60, 12);
-const FUEL_BAR: Rect = (280, 110, 60, 14);
+const SHIELD_LABEL: Rect = (78, 68, 232, 26);
+const FUEL_LABEL: Rect = (78, 103, 155, 26);
 
 // Where to tap (portrait points).
 const PAWS_TAP: (f32, f32) = (385.0, 597.0);
@@ -100,7 +102,7 @@ fn recognise(env: &mut Environment) -> Screen {
     if corners {
         return Screen::Info;
     }
-    if score(env, SHIELD_BAR, green) > 0.5 || score(env, FUEL_BAR, green) > 0.5 {
+    if score(env, SHIELD_LABEL, green) > 0.15 && score(env, FUEL_LABEL, green) > 0.15 {
         return Screen::Play;
     }
     Screen::Other
