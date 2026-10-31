@@ -235,6 +235,19 @@ View options:
         --edge-bars-texture, --starfield-bars): plain black. The launcher's
         "Display bezel: off".
 
+    --two-player=N
+        (Private fork.) Player N (1 or 2) of the launcher's two-player mode:
+        only the pad in XInput slot N is used, and it keeps working while
+        another window has the focus; the bars are plain black, the sound
+        is at 70% and Gridrunner doesn't grab the mouse. Player 2 keeps its
+        own saves (touchHLE_sandbox_p2) and log (touchHLE_log_p2.txt), so
+        both players can run the same game. Give it on the command line.
+
+    --window-rect=X,Y,WIDTH,HEIGHT
+        (Private fork.) A borderless window at that place and size, in
+        screen pixels, with the picture laid out in it as in fullscreen
+        (e.g. one half of the screen in two-player mode). F11 does nothing.
+
     --no-enhancements
         (Private fork.) Undo --sharp-scaling, --nearest-present,
         --nearest-textures and --smooth-render-textures: the games' picture as

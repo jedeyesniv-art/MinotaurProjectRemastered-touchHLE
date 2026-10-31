@@ -119,6 +119,24 @@ pub const WALLPAPER_FILES: &[&str] = &[
 /// the `Documents` directory.
 pub const SANDBOX_DIR: &str = "touchHLE_sandbox";
 
+/// Private fork: whether this is player 2 in the launcher's two-player mode
+/// (`--two-player=2`, given on the command line), who keeps a separate log
+/// and saves so the same game can run twice.
+pub fn is_player_two() -> bool {
+    static PLAYER_TWO: std::sync::LazyLock<bool> =
+        std::sync::LazyLock::new(|| std::env::args().any(|arg| arg == "--two-player=2"));
+    *PLAYER_TWO
+}
+
+/// Private fork: [SANDBOX_DIR], or player 2's own (see [is_player_two]).
+pub fn sandbox_dir() -> &'static str {
+    if is_player_two() {
+        "touchHLE_sandbox_p2"
+    } else {
+        SANDBOX_DIR
+    }
+}
+
 /// Get a platform-specific base path needed for accessing touchHLE's
 /// user-modifiable files. This is empty on platforms other than Android.
 pub fn user_data_base_path() -> Cow<'static, Path> {

@@ -90,6 +90,56 @@ fn size_for_orientation(
         DeviceOrientation::LandscapeRight => (height * scale_hack, width * scale_hack),
     }
 }
+/// Private fork: tells the Windows taskbar that a `--window-rect` window is
+/// fullscreen (`ITaskbarList2::MarkFullscreenWindow`), so the taskbar stays
+/// below it while it has the focus.
+#[cfg(windows)]
+fn mark_fullscreen_for_taskbar(window: &sdl2::video::Window) {
+    use std::ffi::c_void;
+    use windows_sys::core::{GUID, HRESULT};
+    use windows_sys::Win32::System::Com::{
+        CoCreateInstance, CoInitializeEx, CLSCTX_INPROC_SERVER, COINIT_APARTMENTTHREADED,
+    };
+    const CLSID_TASKBAR_LIST: GUID = GUID::from_u128(0x56fdf344_fd6d_11d0_958a_006097c9a090);
+    const IID_ITASKBAR_LIST2: GUID = GUID::from_u128(0x602d4995_b13a_429b_a66e_1935e44f4317);
+    unsafe {
+        // the window's HWND is the first thing in SDL's Windows info
+        let mut info: sdl2_sys::SDL_SysWMinfo = std::mem::zeroed();
+        sdl2_sys::SDL_GetVersion(&mut info.version);
+        if sdl2_sys::SDL_GetWindowWMInfo(window.raw(), &mut info) != sdl2_sys::SDL_bool::SDL_TRUE {
+            log!("Warning: couldn't get the window handle to keep the taskbar below it.");
+            return;
+        }
+        let hwnd = *(info.info.dummy.as_ptr() as *const *mut c_void);
+        CoInitializeEx(std::ptr::null(), COINIT_APARTMENTTHREADED as u32);
+        let mut list: *mut c_void = std::ptr::null_mut();
+        let hr = CoCreateInstance(
+            &CLSID_TASKBAR_LIST,
+            std::ptr::null_mut(),
+            CLSCTX_INPROC_SERVER,
+            &IID_ITASKBAR_LIST2,
+            &mut list,
+        );
+        if hr < 0 || list.is_null() {
+            log!("Warning: no taskbar list ({:#x}), the taskbar may cover the window.", hr);
+            return;
+        }
+        // vtable: IUnknown (QueryInterface, AddRef, Release), ITaskbarList
+        // (HrInit, AddTab, DeleteTab, ActivateTab, SetActiveAlt),
+        // ITaskbarList2 (MarkFullscreenWindow)
+        let vtable = *(list as *const *const usize);
+        let release: unsafe extern "system" fn(*mut c_void) -> u32 = std::mem::transmute(*vtable.add(2));
+        let hr_init: unsafe extern "system" fn(*mut c_void) -> HRESULT = std::mem::transmute(*vtable.add(3));
+        let mark: unsafe extern "system" fn(*mut c_void, *mut c_void, i32) -> HRESULT =
+            std::mem::transmute(*vtable.add(8));
+        if hr_init(list) >= 0 {
+            let hr = mark(list, hwnd, 1);
+            log!("Taskbar told the window is fullscreen ({:#x}).", hr);
+        }
+        release(list);
+    }
+}
+
 fn rotate_fullscreen_size(orientation: DeviceOrientation, screen_size: (u32, u32)) -> (u32, u32) {
     let (short_side, long_side) = if screen_size.0 < screen_size.1 {
         (screen_size.0, screen_size.1)
@@ -301,6 +351,12 @@ pub struct Window {
     device_orientation: DeviceOrientation,
     controller_ctx: sdl2::GameControllerSubsystem,
     controllers: Vec<sdl2::controller::GameController>,
+    /// Private fork: `--two-player=N`: only the pad in XInput slot N-1 (SDL's
+    /// player index) is used; the others' instance IDs are ignored.
+    pad_slot: Option<i32>,
+    ignored_pads: Vec<u32>,
+    /// Private fork: `--window-rect=`: the window stays where it was put.
+    fixed_window: bool,
     dpad_state: DpadState,
     stick_active: bool,
     /// Position of the simulated finger for `--stick-to-swipe`, if touching.
@@ -369,6 +425,11 @@ impl Window {
             // the window on high-DPI displays. Sizes are then real pixels.
             sdl2::hint::set("SDL_WINDOWS_DPI_AWARENESS", "permonitorv2");
         }
+        if options.two_player.is_some() {
+            // Private fork: two games run side by side, and both must hear
+            // their pad though only one window has the focus.
+            sdl2::hint::set("SDL_JOYSTICK_ALLOW_BACKGROUND_EVENTS", "1");
+        }
         let sdl_ctx = sdl2::init().unwrap();
         let video_ctx = sdl_ctx.video().unwrap();
 
@@ -403,7 +464,8 @@ impl Window {
         // that here.
         let device_family = options.device_family.unwrap_or(DeviceFamily::iPhone);
         let device_orientation = options.initial_orientation;
-        let fullscreen = options.fullscreen;
+        // Private fork: --window-rect is laid out like fullscreen.
+        let fullscreen = options.fullscreen || options.window_rect.is_some();
 
         let mut window = if Self::rotatable_fullscreen() {
             // Without this, SDL will force fullscreen mode to be portrait.
@@ -417,6 +479,14 @@ impl Window {
                 .build()
                 .unwrap();
             window
+        } else if let Some((x, y, width, height)) = options.window_rect {
+            video_ctx
+                .window(title, width, height)
+                .position(x, y)
+                .borderless()
+                .opengl()
+                .build()
+                .unwrap()
         } else if fullscreen {
             let (width, height) = video_ctx.display_bounds(0).unwrap().size();
             let window = video_ctx
@@ -521,6 +591,9 @@ impl Window {
             device_orientation,
             controller_ctx,
             controllers: Vec::new(),
+            pad_slot: options.two_player.map(|player| player as i32 - 1),
+            ignored_pads: Vec::new(),
+            fixed_window: options.window_rect.is_some(),
             dpad_state: DpadState {
                 left: false,
                 right: false,
@@ -570,6 +643,13 @@ impl Window {
 
         if window.splash_image.is_some() {
             window.display_splash();
+        }
+
+        // Private fork: two half-screen windows don't make Windows hide the
+        // taskbar, so tell it each one is fullscreen.
+        #[cfg(windows)]
+        if options.window_rect.is_some() {
+            mark_fullscreen_for_taskbar(&window.window);
         }
 
         // Private fork: in fullscreen, capture the mouse so it can steer
@@ -691,6 +771,18 @@ impl Window {
             } else {
                 break;
             };
+
+            // Private fork: --two-player: the other player's pad is ignored.
+            match event {
+                E::ControllerButtonDown { which, .. }
+                | E::ControllerButtonUp { which, .. }
+                | E::ControllerAxisMotion { which, .. }
+                    if self.ignored_pads.contains(&which) =>
+                {
+                    continue;
+                }
+                _ => (),
+            }
 
             // Private fork: before a button-to-touch tap, lift the swipe
             // finger so the app sees a lone tap, and keep it up briefly so it
@@ -1248,6 +1340,16 @@ impl Window {
         };
 
         let controller_name = controller.name();
+        // Private fork: --two-player: only this player's pad (XInput slot).
+        if let Some(slot) = self.pad_slot {
+            let index = unsafe { sdl2_sys::SDL_JoystickGetDevicePlayerIndex(joystick_idx as _) };
+            if index != slot {
+                log!("Pad {} (slot {}) is the other player's, ignoring it.", controller_name, index);
+                self.ignored_pads.push(controller.instance_id());
+                return;
+            }
+            log!("Pad {} (slot {}) is this player's.", controller_name, index);
+        }
         if env::consts::OS == "android" && controller_name.starts_with("uinput-") {
             log!("ignoring fingerprint device: {}", controller_name);
             return;
@@ -2108,7 +2210,7 @@ impl Window {
     /// Private fork: F11 / Alt+Enter. Fullscreen is a borderless window
     /// covering the screen; the window is the app's own size.
     fn toggle_fullscreen(&mut self, options: &Options) {
-        if Self::rotatable_fullscreen() {
+        if Self::rotatable_fullscreen() || self.fixed_window {
             return;
         }
         if self.fullscreen {

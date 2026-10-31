@@ -16,7 +16,13 @@ use std::sync::LazyLock;
 /// (Private fork: [None] if it can't be created, rather than a panic.)
 pub fn get_log_file() -> Option<&'static File> {
     static LOG_FILE: LazyLock<Option<File>> = LazyLock::new(|| {
-        File::create(crate::paths::user_data_base_path().join("touchHLE_log.txt")).ok()
+        // Private fork: player 2 of the two-player mode keeps its own log.
+        let name = if crate::paths::is_player_two() {
+            "touchHLE_log_p2.txt"
+        } else {
+            "touchHLE_log.txt"
+        };
+        File::create(crate::paths::user_data_base_path().join(name)).ok()
     });
 
     LOG_FILE.as_ref()

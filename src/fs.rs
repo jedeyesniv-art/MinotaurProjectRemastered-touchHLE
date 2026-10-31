@@ -555,7 +555,7 @@ impl Fs {
         let host_path_directories = directories.map(|dir| {
             if !read_only_mode {
                 let path = paths::user_data_base_path()
-                    .join(paths::SANDBOX_DIR)
+                    .join(paths::sandbox_dir())
                     .join(bundle_id)
                     .join(dir);
                 if dir == "tmp" {
@@ -586,7 +586,7 @@ impl Fs {
             // Library/Preferences at the start, thus presence of that
             // directory is expected
             let path = paths::user_data_base_path()
-                .join(paths::SANDBOX_DIR)
+                .join(paths::sandbox_dir())
                 .join(bundle_id)
                 .join("Library")
                 .join("Preferences");
@@ -596,7 +596,7 @@ impl Fs {
             // Some other apps also expect a cache folder to be present.
             // TODO: figure out a way to clean caches
             let path = paths::user_data_base_path()
-                .join(paths::SANDBOX_DIR)
+                .join(paths::sandbox_dir())
                 .join(bundle_id)
                 .join("Library")
                 .join("Caches");

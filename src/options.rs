@@ -142,6 +142,12 @@ pub struct Options {
     pub audio_resampler: Option<i32>,
     /// Private fork: see `--volume` in OPTIONS_HELP.txt.
     pub volume: Option<f32>,
+    /// Private fork: see `--two-player=` in OPTIONS_HELP.txt: the player (1
+    /// or 2) in the launcher's two-player mode.
+    pub two_player: Option<u8>,
+    /// Private fork: see `--window-rect=` in OPTIONS_HELP.txt: a borderless
+    /// window at (x, y, width, height), laid out like fullscreen.
+    pub window_rect: Option<(i32, i32, u32, u32)>,
     /// Private fork: see `--perf-log` in OPTIONS_HELP.txt.
     pub perf_log: Option<String>,
     /// Private fork: see `--screenshot-every=` in OPTIONS_HELP.txt.
@@ -257,6 +263,8 @@ impl Default for Options {
             trim_edges: 0,
             audio_resampler: None,
             volume: None,
+            two_player: None,
+            window_rect: None,
             perf_log: None,
             screenshot_every: None,
             hide_cursor: 2.0,
@@ -303,6 +311,17 @@ impl Default for Options {
 }
 
 impl Options {
+    /// Private fork: `--plain-bars`: nothing beside the picture.
+    fn plain_bars(&mut self) {
+        self.bezel = None;
+        self.move_to_margin.clear();
+        self.ambient_bars = None;
+        self.edge_bars = None;
+        self.edge_bars_texture = None;
+        self.starfield_bars = false;
+        self.starfield_warp = false;
+    }
+
     /// Parse the command-line argument syntax for an option. Returns `Ok(true)`
     /// if the option was valid and has been applied, or `Ok(false)` if the
     /// option was not recognized.
@@ -331,13 +350,27 @@ impl Options {
         } else if arg == "--windowed" {
             self.fullscreen = false;
         } else if arg == "--plain-bars" {
-            self.bezel = None;
-            self.move_to_margin.clear();
-            self.ambient_bars = None;
-            self.edge_bars = None;
-            self.edge_bars_texture = None;
-            self.starfield_bars = false;
-            self.starfield_warp = false;
+            self.plain_bars();
+        } else if let Some(value) = arg.strip_prefix("--two-player=") {
+            let player: u8 = value
+                .parse()
+                .ok()
+                .filter(|p| (1..=2).contains(p))
+                .ok_or_else(|| "--two-player= must be 1 or 2".to_string())?;
+            self.two_player = Some(player);
+            // black bars, no mouse grab, each game a bit quieter
+            self.plain_bars();
+            self.mouse_to_swipe = None;
+            self.volume = Some(self.volume.unwrap_or(1.0) * 0.7);
+        } else if let Some(value) = arg.strip_prefix("--window-rect=") {
+            let parts: Vec<i64> = value.split(',').filter_map(|v| v.trim().parse().ok()).collect();
+            let [x, y, w, h] = parts[..] else {
+                return Err("--window-rect= needs x,y,width,height".to_string());
+            };
+            if w <= 0 || h <= 0 {
+                return Err("--window-rect= needs a positive width and height".to_string());
+            }
+            self.window_rect = Some((x as i32, y as i32, w as u32, h as u32));
         } else if arg == "--no-enhancements" {
             self.sharp_scaling = false;
             self.nearest_present = false;
