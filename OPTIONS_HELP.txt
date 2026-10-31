@@ -130,6 +130,13 @@ View options:
         FACTOR, from 0 to 1: e.g. --volume=0.5 halves it (Goat Up 2's mix is
         very loud).
 
+    --alloc-padding=BYTES
+        (Private fork.) Leaves BYTES (rounded up to 16) of zeroed space after
+        every memory block. Games whose own mixers read a little past the end
+        of what they were given (Minotaur Rescue, and others of Llamasoft's)
+        otherwise play the next block's bytes as tiny pops, mostly on short
+        high notes; on the iPad that space is usually zero.
+
     --starfield-bars
         (Private fork, Goat Up.) Fills the bars beside the picture with
         falling stars on black, like the game's own background: soft dim dots

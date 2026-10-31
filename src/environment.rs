@@ -431,6 +431,7 @@ impl Environment {
                 .starts_with("com.go.starwave.CritterCrunch");
         // We always reset this flag depending on which game is launched.
         mem.zero_memory_on_free = !is_spore && !is_critter_crunch;
+        mem.alloc_padding = options.alloc_padding;
         if is_spore {
             log!("Applying game-specific hack for Spore Origins: zeroing memory on alloc instead of free.");
         }

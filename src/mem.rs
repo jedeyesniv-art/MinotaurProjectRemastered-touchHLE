@@ -253,6 +253,10 @@ pub struct Mem {
     /// Right now only one game, Spore Origin, is setting this value to `false`
     /// via a game-specific hack. See [crate::Environment] for more info.
     pub(super) zero_memory_on_free: bool,
+
+    /// Private fork: see `--alloc-padding=` in OPTIONS_HELP.txt: zeroed
+    /// bytes left after every allocation.
+    pub alloc_padding: GuestUSize,
 }
 
 impl Drop for Mem {
@@ -299,6 +303,7 @@ impl Mem {
             vm_allocator,
             heap_allocator: None,
             zero_memory_on_free: true,
+            alloc_padding: 0,
         }
     }
 
@@ -534,8 +539,11 @@ impl Mem {
         heap: Option<&mut HeapAllocator>,
         size: GuestUSize,
     ) -> MutVoidPtr {
+        // Private fork: --alloc-padding (games whose mixers read just past
+        // the end of a sound played the next block's bytes as pops)
+        let pad = self.alloc_padding;
         let (vm, heap) = self.allocators_mut(heap);
-        let alloc = match heap.alloc(vm, size) {
+        let alloc = match heap.alloc(vm, size + pad) {
             None => {
                 panic!("Could not find large enough chunk to allocate {size:#x} bytes")
             }

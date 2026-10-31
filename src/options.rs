@@ -144,6 +144,8 @@ pub struct Options {
     pub audio_resampler: Option<i32>,
     /// Private fork: see `--volume` in OPTIONS_HELP.txt.
     pub volume: Option<f32>,
+    /// Private fork: see `--alloc-padding=` in OPTIONS_HELP.txt (bytes).
+    pub alloc_padding: u32,
     /// Private fork: see `--two-player=` in OPTIONS_HELP.txt: the player (1
     /// or 2) in the launcher's two-player mode.
     pub two_player: Option<u8>,
@@ -269,6 +271,7 @@ impl Default for Options {
             trim_edges: 0,
             audio_resampler: None,
             volume: None,
+            alloc_padding: 0,
             two_player: None,
             pad: None,
             window_rect: None,
@@ -491,6 +494,9 @@ impl Options {
                 return Err("--volume= must be between 0 and 1".to_string());
             }
             self.volume = Some(volume);
+        } else if let Some(value) = arg.strip_prefix("--alloc-padding=") {
+            let bytes: u32 = value.parse().map_err(|_| "--alloc-padding= needs a number of bytes".to_string())?;
+            self.alloc_padding = bytes.next_multiple_of(16);
         } else if arg == "--starfield-bars" {
             self.starfield_bars = true;
         } else if let Some(value) = arg.strip_prefix("--trim-edges=") {

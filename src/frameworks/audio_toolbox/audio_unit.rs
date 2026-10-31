@@ -10,7 +10,7 @@
 use std::time::Instant;
 
 use crate::audio::openal::al_types::{ALuint, ALvoid};
-use crate::audio::openal::{AL_BUFFERS_PROCESSED, AL_PLAYING, AL_SOURCE_STATE};
+use crate::audio::openal::{AL_BUFFERS_PROCESSED, AL_PLAYING, AL_SOURCE_STATE, AL_STOPPED};
 
 use crate::abi::CallFromHost;
 use crate::dyld::FunctionExports;
@@ -448,6 +448,22 @@ pub fn render_audio_unit(env: &mut Environment, audio_unit: AudioUnit) {
         let (al_format, _sample_rate, processed_data) =
             decode_buffer(&env.mem, &stream_format, buffer1Data.cast(), buffer_size);
 
+        // Private fork: TOUCHHLE_DUMP_AUDIO=file appends the app's samples,
+        // as they reach OpenAL, to that file (for measuring the mix)
+        if let Ok(path) = std::env::var("TOUCHHLE_DUMP_AUDIO") {
+            use std::io::Write;
+            if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&path) {
+                let start = f.metadata().map_or(0, |m| m.len()) / actual_bytes_per_frame as u64;
+                let _ = f.write_all(&processed_data);
+                // and each slice's first frame and length to file.slices
+                if let Ok(mut s) =
+                    std::fs::OpenOptions::new().create(true).append(true).open(format!("{path}.slices"))
+                {
+                    let _ = writeln!(s, "{start} {number_frames}");
+                }
+            }
+        }
+
         unsafe {
             // Get an unqueued buffer or create a new one
             let al_buffer = al_buffers.pop().unwrap_or_else(|| {
@@ -468,6 +484,11 @@ pub fn render_audio_unit(env: &mut Environment, audio_unit: AudioUnit) {
             let mut al_source_state = 0;
             context.GetSourcei(al_source, AL_SOURCE_STATE, &mut al_source_state);
             if al_source_state != AL_PLAYING {
+                // Private fork: after the first start, a stopped source means
+                // the queue ran dry (a gap, heard as a pop)
+                if al_source_state == AL_STOPPED {
+                    log!("Audio unit underrun: source ran dry, restarting ({} frames were queued)", queued_frames);
+                }
                 context.SourcePlay(al_source);
             }
 
