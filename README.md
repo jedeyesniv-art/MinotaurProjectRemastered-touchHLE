@@ -1,3 +1,17 @@
+> **This is an unofficial fork of touchHLE, made for
+> [Minotaur Project Remastered](https://github.com/jedeyesniv-art/MinotaurProjectRemastered)**
+> (Llamasoft's Minotaur Project games on Windows). It is not affiliated with
+> or endorsed by the touchHLE project. The changes were written with AI
+> assistance, which touchHLE does not accept upstream, so please don't
+> report this fork's bugs to touchHLE or submit its code there. For touchHLE
+> itself, see [touchHLE/touchHLE](https://github.com/touchHLE/touchHLE).
+>
+> The fork's changes (per-game pad controls, presentation, audio fixes,
+> local high scores and achievements, two-player mode) are on the `main`
+> branch, mostly in `src/` (`gridrunner.rs`, `deflex.rs`, `minos.rs`,
+> `goat2.rs` and friends) and `touchHLE_options.txt`. Licensed, like
+> touchHLE, under the Mozilla Public License 2.0.
+
 # touchHLE: high-level emulator for early iOS apps
 
 **touchHLE** is a high-level emulator for early iOS apps. It runs on modern desktop operating systems and Android, and is written in Rust.
