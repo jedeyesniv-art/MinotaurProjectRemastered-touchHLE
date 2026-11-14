@@ -58,6 +58,19 @@ const END_QUIT: (f32, f32) = (512.0, 720.0);
 const END_NEXT_OR_PLAY: (f32, f32) = (933.0, 720.0);
 const TITLE_TAP: (f32, f32) = (512.0, 384.0);
 
+/// Menu focus (`menu_focus.rs`): the pause and end-of-level buttons
+/// (landscape points, measured on the user's screenshots).
+const FOCUS_PAUSE: [[f32; 4]; 3] = [
+    [420.0, 262.0, 192.0, 86.0], // RESUME
+    [428.0, 496.0, 176.0, 92.0], // RETRY
+    [428.0, 608.0, 176.0, 92.0], // QUIT
+];
+const FOCUS_END: [[f32; 4]; 3] = [
+    [0.0, 680.0, 180.0, 88.0],   // RETRY
+    [428.0, 680.0, 170.0, 88.0], // QUIT
+    [846.0, 680.0, 178.0, 88.0], // NEXT
+];
+
 fn score(env: &mut Environment, rect: Rect, test: impl Fn(u8, u8, u8) -> bool) -> f32 {
     let rect = from_view_rect(env, rect);
     read_screen_pixels(env, rect).map_or(0.0, |p| fraction(&p, test))
@@ -167,7 +180,8 @@ fn action(screen: Screen, input: PadInput) -> Action {
         (Screen::Play, Some(Button::Start)) => Action::Tap(PAUSE_ICON),
         (Screen::Play, _) if left_paddle => Action::Tap(LEFT_PADDLE),
         (Screen::Play, _) if right_paddle => Action::Tap(RIGHT_PADDLE),
-        (Screen::Pause, Some(Button::Start)) => Action::Tap(RESUME),
+        (Screen::Pause, Some(Button::Start | Button::B)) => Action::Tap(RESUME),
+        (Screen::EndOfLevel, Some(Button::B)) => Action::Tap(END_QUIT),
         (Screen::Pause, Some(Button::X)) => Action::Tap(PAUSE_RETRY),
         (Screen::Pause, Some(Button::Back)) => Action::Tap(PAUSE_QUIT),
         (Screen::EndOfLevel, Some(Button::X)) => Action::Tap(END_RETRY),
@@ -205,6 +219,11 @@ pub fn handle_input(env: &mut Environment, input: PadInput, down: bool) {
     // direction when the pointer comes and goes) lifts the old touch first:
     // UIKit asserts on a finger going down twice while another is held.
     release(env, input);
+    if let PadInput::Button(button) = input {
+        if crate::menu_focus::handle_button(env, button, down) || !down {
+            return;
+        }
+    }
     if !down {
         return;
     }
@@ -233,10 +252,21 @@ pub fn frame(env: &mut Environment) {
         *f += 1;
         *f
     });
+    crate::menu_focus::frame(env);
     if n % 10 != 0 {
         return;
     }
-    let on_level_select = recognise_held(env) == Screen::LevelSelect;
+    let screen = recognise_held(env);
+    let focus: Option<(u32, &[[f32; 4]], usize)> = match screen {
+        Screen::Pause => Some((1, &FOCUS_PAUSE, 0)),
+        Screen::EndOfLevel => Some((2, &FOCUS_END, 2)),
+        _ => None,
+    };
+    crate::menu_focus::set(env, focus);
+    if focus.is_some() {
+        return;
+    }
+    let on_level_select = screen == Screen::LevelSelect;
     if on_level_select {
         // The pointer takes the stick over, so the stick's paddle touch
         // would never be lifted.

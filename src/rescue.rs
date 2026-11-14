@@ -202,6 +202,34 @@ const BOX_X: [f32; 8] = [137.0, 240.0, 343.0, 446.0, 548.0, 651.0, 754.0, 857.0]
 const LEVEL_ROW_Y: f32 = 240.0;
 const AUDIO_ROW_Y: f32 = 592.0;
 
+/// Menu focus (`menu_focus.rs`): each screen's buttons (landscape points,
+/// measured on the user's screenshots). Taps go to their centres.
+const FOCUS_MAIN_MENU: [[f32; 4]; 3] = [
+    [0.0, 0.0, 1024.0, 160.0],   // TOUCH TO SELECT GAME
+    [0.0, 608.0, 512.0, 160.0],  // INFO
+    [512.0, 608.0, 512.0, 160.0], // PLAY
+];
+const FOCUS_INFO: [[f32; 4]; 4] = [
+    [0.0, 0.0, 512.0, 160.0],    // ABOUT LLAMASOFT
+    [512.0, 0.0, 512.0, 160.0],  // MINOTAUR PROJECT
+    [0.0, 206.0, 1024.0, 146.0], // ABOUT SOLAR MINOTAUR RESCUE FRENZY
+    [0.0, 608.0, 512.0, 160.0],  // BACK
+];
+
+/// The level select: number of players, the eight levels, SURVIVAL, BACK,
+/// START; the pause screen: UNPAUSE, QUIT GAME and the eight audio levels.
+fn focus_level_select() -> Vec<[f32; 4]> {
+    let mut b = vec![[0.0, 0.0, 1024.0, 170.0]];
+    b.extend(BOX_X.iter().map(|&x| [x - 40.0, 195.0, 80.0, 90.0]));
+    b.extend([[312.0, 416.0, 422.0, 96.0], [0.0, 608.0, 512.0, 160.0], [512.0, 608.0, 512.0, 160.0]]);
+    b
+}
+fn focus_pause() -> Vec<[f32; 4]> {
+    let mut b = vec![[300.0, 160.0, 420.0, 96.0], [300.0, 416.0, 420.0, 96.0]];
+    b.extend(BOX_X.iter().map(|&x| [x - 38.0, 544.0, 76.0, 96.0]));
+    b
+}
+
 /// The virtual finger's tuning: the PC beta's ini as the user settled it.
 const TOUCH_AREA: (f32, f32, f32, f32) = (0.55, 0.55, 0.97, 0.95);
 const TOUCH_DEAD: f32 = 0.2;
@@ -360,6 +388,7 @@ fn action(screen: Screen, input: PadInput) -> Action {
         (Screen::Play, Some(B::A)) => Action::Tap(MIDDLE),
         (Screen::Pause, Some(B::Start)) => Action::Tap(UNPAUSE),
         (Screen::Pause, Some(B::Back)) => Action::Tap(QUIT_GAME),
+        (Screen::Pause, Some(B::B)) => Action::Tap(UNPAUSE),
         (Screen::Pause, _) if left => Action::Step { row_y: AUDIO_ROW_Y, by: -1 },
         (Screen::Pause, _) if right => Action::Step { row_y: AUDIO_ROW_Y, by: 1 },
         _ => Action::Nothing,
@@ -408,7 +437,15 @@ pub fn handle_input(env: &mut Environment, input: PadInput, down: bool) {
         if let Some((finger, at)) = STATE.with(|s| s.borrow_mut().held.remove(&input)) {
             ui_touch::handle_event(env, Event::TouchesUp(HashMap::from([(finger, at)])));
         }
+        if let PadInput::Button(button) = input {
+            crate::menu_focus::handle_button(env, button, false);
+        }
         return;
+    }
+    if let PadInput::Button(button) = input {
+        if crate::menu_focus::handle_button(env, button, true) {
+            return;
+        }
     }
     let screen = screen_now(env);
     let action = action(screen, input);
@@ -486,10 +523,23 @@ pub fn frame(env: &mut Environment) {
         // and menus.
         let black = matches!(screen, Screen::Play | Screen::Pause | Screen::Attract);
         env.window_mut().set_ambient_bars_off(black);
-        // The pointer everywhere but play (the window gives it A and the
-        // left stick while it's shown).
-        env.window_mut().set_pad_cursor_enabled(screen != Screen::Play);
+        // The red highlight on screens with buttons; elsewhere the pointer
+        // everywhere but play (the window gives it A and the left stick
+        // while it's shown; the text pages scroll by dragging).
+        let (level_select, pause) = (focus_level_select(), focus_pause());
+        let focus: Option<(u32, &[[f32; 4]], usize)> = match screen {
+            Screen::MainMenu => Some((1, &FOCUS_MAIN_MENU, 2)),
+            Screen::Info => Some((2, &FOCUS_INFO, 2)),
+            Screen::LevelSelect => Some((3, &level_select, level_select.len() - 1)),
+            Screen::Pause => Some((4, &pause, 0)),
+            _ => None,
+        };
+        crate::menu_focus::set(env, focus);
+        if focus.is_none() {
+            env.window_mut().set_pad_cursor_enabled(screen != Screen::Play);
+        }
     }
+    crate::menu_focus::frame(env);
     finger_frame(env);
 }
 

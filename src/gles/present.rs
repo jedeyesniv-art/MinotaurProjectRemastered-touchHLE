@@ -911,7 +911,7 @@ pub unsafe fn upload_banner(gles: &mut dyn GLES, pixels: &[u8], (width, height):
 /// Private fork, menu focus (`menu_focus.rs`): turn the focused button red,
 /// pulsing gently. `rect` is in window pixels (left, top, right, bottom, top
 /// measured from the top), `viewport` the picture's. Two passes: multiply
-/// by red (its other colours fall to a quarter), then add red, so dark parts
+/// by red (its other colours fall to under half, so coloured text stays readable), then add red, so dark parts
 /// glow dark red and light ones go bright red. Called after [present_frame],
 /// whose state `eagl.rs` puts back afterwards.
 pub unsafe fn draw_menu_focus(gles: &mut dyn GLES, viewport: (u32, u32, u32, u32), rect: [f32; 4]) {
@@ -936,7 +936,7 @@ pub unsafe fn draw_menu_focus(gles: &mut dyn GLES, viewport: (u32, u32, u32, u32
     let fill = quad(rect);
     gles.VertexPointer(2, gles11::FLOAT, 0, fill.as_ptr() as *const GLvoid);
     gles.BlendFunc(gles11::ZERO, gles11::SRC_COLOR);
-    gles.Color4f(1.0, 0.25, 0.25, 1.0);
+    gles.Color4f(1.0, 0.45, 0.45, 1.0);
     gles.DrawArrays(gles11::TRIANGLES, 0, 6);
     gles.BlendFunc(gles11::ONE, gles11::ONE);
     let glow = 0.30 + 0.20 * pulse;

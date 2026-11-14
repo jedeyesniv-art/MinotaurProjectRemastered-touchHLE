@@ -108,6 +108,36 @@ const QUIT_GAME: (f32, f32) = (541.0, 607.0);
 /// BACK on the info page and the level select (INFO on the main menu).
 const BACK: (f32, f32) = (263.0, 684.0);
 
+/// Menu focus (`menu_focus.rs`): each screen's buttons (landscape points,
+/// measured on the user's screenshots). Taps go to their centres.
+const FOCUS_MAIN_MENU: [[f32; 4]; 5] = [
+    [0.0, 0.0, 1024.0, 136.0],    // TOUCH TO SELECT GAME MODE
+    [0.0, 192.0, 416.0, 94.0],    // PLAY ENDURANCE
+    [466.0, 192.0, 558.0, 94.0],  // CONTROL
+    [0.0, 634.0, 512.0, 134.0],   // INFO
+    [512.0, 634.0, 512.0, 134.0], // PLAY
+];
+const FOCUS_LEVEL_SELECT: [[f32; 4]; 6] = [
+    [0.0, 196.0, 76.0, 90.0],     // -
+    [118.0, 196.0, 90.0, 90.0],   // --
+    [808.0, 196.0, 114.0, 90.0],  // ++
+    [964.0, 196.0, 60.0, 90.0],   // +
+    [0.0, 634.0, 512.0, 134.0],   // BACK
+    [512.0, 634.0, 512.0, 134.0], // START
+];
+/// ABOUT LLAMASOFT, MINOTAUR PROJECT, ABOUT MINOTRON, the eight audio
+/// levels, BACK.
+fn focus_info() -> Vec<[f32; 4]> {
+    let mut b = vec![[0.0, 0.0, 512.0, 158.0], [512.0, 0.0, 512.0, 158.0], [0.0, 196.0, 1024.0, 156.0]];
+    b.extend([143.0, 247.0, 354.0, 457.0, 560.0, 662.0, 767.0, 865.0].map(|x| [x - 40.0, 384.0, 80.0, 96.0]));
+    b.push([0.0, 612.0, 512.0, 156.0]);
+    b
+}
+const FOCUS_PAUSE: [[f32; 4]; 2] = [
+    [302.0, 297.0, 484.0, 120.0], // UNPAUSE
+    [302.0, 554.0, 484.0, 120.0], // QUIT GAME
+];
+
 pub fn apply_patch(env: &mut Environment) {
     if !env.options.minotron_pad || env.bundle.bundle_identifier() != BUNDLE_ID {
         return;
@@ -364,12 +394,24 @@ pub fn frame(env: &mut Environment) {
             log!("Minotron pad: screen {:?}", screen);
         }
         let play = screen == Screen::Play;
-        env.window_mut().set_pad_cursor_enabled(!play && screen != Screen::GameOver);
+        let info = focus_info();
+        let focus: Option<(u32, &[[f32; 4]], usize)> = match screen {
+            Screen::MainMenu => Some((1, &FOCUS_MAIN_MENU, 4)),
+            Screen::LevelSelect => Some((2, &FOCUS_LEVEL_SELECT, 5)),
+            Screen::Info => Some((3, &info, 2)),
+            Screen::Pause => Some((4, &FOCUS_PAUSE, 0)),
+            _ => None,
+        };
+        crate::menu_focus::set(env, focus);
+        if focus.is_none() {
+            env.window_mut().set_pad_cursor_enabled(!play && screen != Screen::GameOver);
+        }
         // Play's black field and colourful sprites make a messy glow: black
         // bars there, the glow everywhere else.
         env.window_mut().set_ambient_bars_off(matches!(screen, Screen::Play | Screen::Pause | Screen::GameOver));
     }
 
+    crate::menu_focus::frame(env);
     let (fire, icade, ticking) = STATE.with(|s| {
         let s = s.borrow();
         let ticking = s.last_tick.is_some_and(|t| s.frames.saturating_sub(t) <= 2);
@@ -412,8 +454,9 @@ fn action(screen: Screen, button: Button) -> Action {
         (Screen::Pause, B::Back) => Action::Tap(QUIT_GAME),
         (Screen::MainMenu, B::Back) => Action::Quit,
         (Screen::Launch, B::Back | B::B) => Action::Quit,
-        (Screen::Info | Screen::LevelSelect, B::Back) => Action::Tap(BACK),
-        (Screen::Other, B::Back) => Action::Icade(ICADE_A),
+        (Screen::Info | Screen::LevelSelect, B::Back | B::B) => Action::Tap(BACK),
+        (Screen::Pause, B::B) => Action::Tap(UNPAUSE),
+        (Screen::Other, B::Back | B::B) => Action::Icade(ICADE_A),
         _ => Action::Nothing,
     }
 }
@@ -427,7 +470,15 @@ pub fn handle_input(env: &mut Environment, input: PadInput, down: bool) {
         if let Some((finger, at)) = STATE.with(|s| s.borrow_mut().held_touches.remove(&input)) {
             ui_touch::handle_event(env, Event::TouchesUp(HashMap::from([(finger, at)])));
         }
+        if let PadInput::Button(button) = input {
+            crate::menu_focus::handle_button(env, button, false);
+        }
         return;
+    }
+    if let PadInput::Button(button) = input {
+        if crate::menu_focus::handle_button(env, button, true) {
+            return;
+        }
     }
     // A goes to the pointer outside play and game over (the window takes
     // it), and does nothing in play; the left stick's left/right events only come in play,
