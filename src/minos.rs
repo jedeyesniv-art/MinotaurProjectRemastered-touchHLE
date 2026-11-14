@@ -224,7 +224,8 @@ pub fn frame(env: &mut Environment) {
         };
         crate::menu_focus::set(env, focus);
         if focus.is_none() {
-            env.window_mut().set_pad_cursor_enabled(screen == Screen::Title);
+            // No pointer: the title starts with A (the game's iCade button).
+            env.window_mut().set_pad_cursor_enabled(false);
         }
         if env.options.edge_bars.is_some() {
             let glow = matches!(screen, Screen::Menu | Screen::Info);

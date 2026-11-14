@@ -242,6 +242,11 @@ const TOUCH_SMOOTH: f32 = 0.06;
 const TOUCH_RELEASE: f32 = 0.0;
 const TOUCH_FLIP: f32 = 170.0;
 const VIEW: (f32, f32) = (1024.0, 768.0);
+/// Text pages: the stick drags the text up to this fast (points a second),
+/// with a finger between these heights.
+const SCROLL_SPEED: f32 = 700.0;
+const SCROLL_TOP: f32 = 150.0;
+const SCROLL_BOTTOM: f32 = 620.0;
 const DT: f32 = 1.0 / 60.0;
 
 fn score(env: &mut Environment, rect: Rect, test: impl Fn(u8, u8, u8) -> bool) -> f32 {
@@ -314,6 +319,8 @@ struct State {
     pause_taps: Vec<(u32, bool)>,
     /// Frames to keep the finger off (after a pause tap).
     finger_off: u32,
+    /// The text page scroll finger's height, while it's down.
+    scroll: Option<f32>,
     finger: Finger,
 }
 
@@ -368,7 +375,8 @@ fn action(screen: Screen, input: PadInput) -> Action {
         _ => None,
     };
     match (screen, button) {
-        (Screen::Title | Screen::Attract, Some(B::Start)) => Action::Tap(MIDDLE),
+        (Screen::Title | Screen::Attract, Some(B::Start | B::A)) => Action::Tap(MIDDLE),
+        (Screen::TextPage, Some(B::A)) => Action::Tap(TEXT_BACK),
         (Screen::Title | Screen::Attract | Screen::MainMenu, Some(B::Back)) => Action::Quit,
         (Screen::Title | Screen::Attract, Some(B::B)) => Action::Quit,
         (Screen::MainMenu, Some(B::Start)) => Action::Tap(MENU_PLAY_TAP),
@@ -418,6 +426,7 @@ fn finger_for(input: PadInput) -> FingerId {
 
 const STROKE_FINGER: FingerId = FingerId::Pad(200);
 const PAUSE_FINGER: FingerId = FingerId::Pad(201);
+const SCROLL_FINGER: FingerId = FingerId::Pad(202);
 
 fn touch(env: &mut Environment, finger: FingerId, point: (f32, f32), phase: u8) {
     let at = from_view_point(env, point);
@@ -536,11 +545,48 @@ pub fn frame(env: &mut Environment) {
         };
         crate::menu_focus::set(env, focus);
         if focus.is_none() {
-            env.window_mut().set_pad_cursor_enabled(screen != Screen::Play);
+            // No pointer: A taps the title and attract demo, the stick
+            // scrolls the text pages.
+            env.window_mut().set_pad_cursor_enabled(false);
         }
     }
     crate::menu_focus::frame(env);
+    scroll_frame(env);
     finger_frame(env);
+}
+
+/// Text pages: the stick scrolls them with a finger that drags the way it's
+/// pushed (down pushes the text up, as a finger drags it). At the edge of its
+/// room the finger lifts and goes down again at the other end.
+fn scroll_frame(env: &mut Environment) {
+    let on_page = STATE.with(|s| s.borrow().screen == Some(Screen::TextPage));
+    let sy = if on_page { env.window().left_stick_raw().1 } else { 0.0 };
+    let was = STATE.with(|s| s.borrow().scroll);
+    if sy.abs() < TOUCH_DEAD {
+        if let Some(y) = was {
+            touch(env, SCROLL_FINGER, (512.0, y), 2);
+            STATE.with(|s| s.borrow_mut().scroll = None);
+        }
+        return;
+    }
+    let strength = ((sy.abs() - TOUCH_DEAD) / (1.0 - TOUCH_DEAD)).min(1.0).powf(1.5);
+    match was {
+        None => {
+            let y = if sy > 0.0 { SCROLL_BOTTOM } else { SCROLL_TOP };
+            touch(env, SCROLL_FINGER, (512.0, y), 0);
+            STATE.with(|s| s.borrow_mut().scroll = Some(y));
+        }
+        Some(y) => {
+            let y = y - sy.signum() * strength * SCROLL_SPEED * DT;
+            if !(SCROLL_TOP..=SCROLL_BOTTOM).contains(&y) {
+                touch(env, SCROLL_FINGER, (512.0, y.clamp(SCROLL_TOP, SCROLL_BOTTOM)), 2);
+                STATE.with(|s| s.borrow_mut().scroll = None);
+            } else {
+                touch(env, SCROLL_FINGER, (512.0, y), 1);
+                STATE.with(|s| s.borrow_mut().scroll = Some(y));
+            }
+        }
+    }
 }
 
 /// The virtual finger (in landscape points) and the stick between frames:

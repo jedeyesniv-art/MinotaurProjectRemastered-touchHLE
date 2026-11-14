@@ -105,6 +105,15 @@ fn read_word(env: &Environment, addr: u32) -> Option<u32> {
     Some(u32::from_le_bytes(bytes.try_into().unwrap()))
 }
 
+/// The Neon engine's game object, `*(Neon_Internals::gg_cRect + 0x148c)`.
+pub fn game_object(env: &Environment) -> Option<u32> {
+    env.bins[0]
+        .exported_symbols
+        .get("__ZN14Neon_Internals8gg_cRectE")
+        .and_then(|&var| read_word(env, var))
+        .and_then(|rect| read_word(env, rect + 0x148c))
+}
+
 /// Called when the pad quits a game from its pause screen: asks the game to
 /// post its running score, as its game over would, so it's recorded by
 /// [faked_call] on the next frame.
@@ -116,12 +125,7 @@ pub fn post_running_score(env: &mut Environment) {
     let Some(game) = RUNNING_SCORES.iter().find(|g| g.app_id == app_id) else {
         return;
     };
-    let object = env.bins[0]
-        .exported_symbols
-        .get("__ZN14Neon_Internals8gg_cRectE")
-        .and_then(|&var| read_word(env, var))
-        .and_then(|rect| read_word(env, rect + 0x148c));
-    let Some(object) = object else {
+    let Some(object) = game_object(env) else {
         echo!("Running score: no game object found");
         return;
     };

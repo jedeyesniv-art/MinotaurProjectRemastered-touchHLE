@@ -404,7 +404,10 @@ pub fn frame(env: &mut Environment) {
         };
         crate::menu_focus::set(env, focus);
         if focus.is_none() {
-            env.window_mut().set_pad_cursor_enabled(!play && screen != Screen::GameOver);
+            // No pointer: A moves on from the launch page (a tap) and the
+            // title, attract demo and INFO text pages (the iCade button).
+            let _ = play;
+            env.window_mut().set_pad_cursor_enabled(false);
         }
         // Play's black field and colourful sprites make a messy glow: black
         // bars there, the glow everywhere else.
@@ -454,6 +457,8 @@ fn action(screen: Screen, button: Button) -> Action {
         (Screen::Pause, B::Back) => Action::Tap(QUIT_GAME),
         (Screen::MainMenu, B::Back) => Action::Quit,
         (Screen::Launch, B::Back | B::B) => Action::Quit,
+        (Screen::Launch, B::A) => Action::Tap((512.0, 384.0)),
+        (Screen::Other, B::A) => Action::Icade(ICADE_A),
         (Screen::Info | Screen::LevelSelect, B::Back | B::B) => Action::Tap(BACK),
         (Screen::Pause, B::B) => Action::Tap(UNPAUSE),
         (Screen::Other, B::Back | B::B) => Action::Icade(ICADE_A),
