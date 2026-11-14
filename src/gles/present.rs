@@ -908,6 +908,43 @@ pub unsafe fn upload_banner(gles: &mut dyn GLES, pixels: &[u8], (width, height):
     texture
 }
 
+/// Private fork, menu focus (`menu_focus.rs`): turn the focused button red,
+/// pulsing gently. `rect` is in window pixels (left, top, right, bottom, top
+/// measured from the top), `viewport` the picture's. Two passes: multiply
+/// by red (its other colours fall to a quarter), then add red, so dark parts
+/// glow dark red and light ones go bright red. Called after [present_frame],
+/// whose state `eagl.rs` puts back afterwards.
+pub unsafe fn draw_menu_focus(gles: &mut dyn GLES, viewport: (u32, u32, u32, u32), rect: [f32; 4]) {
+    use gles11::types::*;
+    use std::sync::OnceLock;
+    static START: OnceLock<Instant> = OnceLock::new();
+    let t = START.get_or_init(Instant::now).elapsed().as_secs_f32();
+    let pulse = 0.5 + 0.5 * (t * std::f32::consts::TAU / 1.2).sin();
+    let (vx, vy, vw, vh) = viewport;
+    gles.Viewport(vx as _, vy as _, vw as _, vh as _);
+    let nx = |x: f32| (x - vx as f32) / (vw as f32 / 2.0) - 1.0;
+    let ny = |y: f32| 1.0 - (y - vy as f32) / (vh as f32 / 2.0);
+    let quad = |[x0, y0, x1, y1]: [f32; 4]| -> [f32; 12] {
+        [nx(x0), ny(y1), nx(x0), ny(y0), nx(x1), ny(y1), nx(x1), ny(y1), nx(x0), ny(y0), nx(x1), ny(y0)]
+    };
+    gles.MatrixMode(gles11::TEXTURE);
+    gles.LoadIdentity();
+    gles.Disable(gles11::TEXTURE_2D);
+    gles.DisableClientState(gles11::TEXTURE_COORD_ARRAY);
+    gles.EnableClientState(gles11::VERTEX_ARRAY);
+    gles.Enable(gles11::BLEND);
+    let fill = quad(rect);
+    gles.VertexPointer(2, gles11::FLOAT, 0, fill.as_ptr() as *const GLvoid);
+    gles.BlendFunc(gles11::ZERO, gles11::SRC_COLOR);
+    gles.Color4f(1.0, 0.25, 0.25, 1.0);
+    gles.DrawArrays(gles11::TRIANGLES, 0, 6);
+    gles.BlendFunc(gles11::ONE, gles11::ONE);
+    let glow = 0.30 + 0.20 * pulse;
+    gles.Color4f(glow, 0.0, 0.0, 1.0);
+    gles.DrawArrays(gles11::TRIANGLES, 0, 6);
+    gles.Color4f(1.0, 1.0, 1.0, 1.0);
+}
+
 /// Private fork, `--record-achievements`: draw the banner upright across the
 /// top of the picture (`viewport`), `alpha` opaque. Called after
 /// [present_frame], whose state `eagl.rs` puts back afterwards.

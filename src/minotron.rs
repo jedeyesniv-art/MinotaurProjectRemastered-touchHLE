@@ -94,6 +94,10 @@ const PLAY_BOX: Rect = (710, 665, 85, 40);
 const TOP_LINE: Rect = (140, 5, 780, 25);
 const SECOND_LINE: Rect = (395, 68, 290, 30);
 const ABOUT_LINE: Rect = (275, 255, 490, 40);
+/// The launch page's olive ground ("Cattle Electronics presents"): 0.94 and
+/// 0.78 there, at most 0.26 on any other screenshot (of any game).
+const OLIVE_TOP: Rect = (0, 100, 1024, 60);
+const OLIVE_BOTTOM: Rect = (0, 700, 1024, 60);
 /// Checks (every 10 frames) without the score bar before play is over.
 const PLAY_MISSES: u32 = 3;
 
@@ -140,6 +144,8 @@ enum Screen {
     Play,
     Pause,
     GameOver,
+    /// "Cattle Electronics presents", the first page.
+    Launch,
     MainMenu,
     LevelSelect,
     Info,
@@ -185,6 +191,10 @@ fn recognise_colours(env: &mut Environment) -> Screen {
     let cyan = |r: u8, g: u8, b: u8| r < 120 && g > 150 && b > 150;
     let yellow = |r: u8, g: u8, b: u8| r > 150 && g > 150 && b < 100;
     let blue = |r: u8, g: u8, b: u8| r < 110 && g < 140 && b > 170 && b > r + 60;
+    let olive = |r: u8, g: u8, b: u8| (30..=90).contains(&r) && (35..=95).contains(&g) && b < 30 && g >= r;
+    if score(env, OLIVE_TOP, olive) > 0.6 && score(env, OLIVE_BOTTOM, olive) > 0.5 {
+        return Screen::Launch;
+    }
     let scores = [
         score(env, UNPAUSE_BOX, yellow),
         score(env, QUIT_BOX, magenta),
@@ -401,6 +411,7 @@ fn action(screen: Screen, button: Button) -> Action {
         (Screen::Pause, B::Start) => Action::Tap(UNPAUSE),
         (Screen::Pause, B::Back) => Action::Tap(QUIT_GAME),
         (Screen::MainMenu, B::Back) => Action::Quit,
+        (Screen::Launch, B::Back | B::B) => Action::Quit,
         (Screen::Info | Screen::LevelSelect, B::Back) => Action::Tap(BACK),
         (Screen::Other, B::Back) => Action::Icade(ICADE_A),
         _ => Action::Nothing,

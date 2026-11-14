@@ -41,6 +41,7 @@ mod fs;
 mod gdb;
 mod gles;
 mod deflex;
+mod menu_focus;
 mod minos;
 mod goat;
 mod goat2;

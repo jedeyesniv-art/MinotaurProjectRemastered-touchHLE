@@ -64,7 +64,13 @@ fn score(env: &mut Environment, rect: Rect, test: impl Fn(u8, u8, u8) -> bool) -
 }
 
 fn recognise(env: &mut Environment) -> Screen {
-    let white = |r: u8, g: u8, b: u8| r > 215 && g > 215 && b > 215;
+    // The letters are white on most levels, but over some fields (the oxen
+    // level) they peak at 214, so a light, near-neutral test: 0.11-0.23 per
+    // button on that pause, 0 on every other screenshot.
+    let white = |r: u8, g: u8, b: u8| {
+        let (hi, lo) = (r.max(g).max(b), r.min(g).min(b));
+        lo > 150 && hi - lo < 40
+    };
     let blue = |r: u8, g: u8, b: u8| b > 170 && r < 130 && g < 90;
     let light = |r: u8, g: u8, b: u8| r > 180 && g > 165 && b > 185;
     if PAUSE_BUTTONS.iter().all(|&rect| score(env, rect, white) > 0.06) {
@@ -156,6 +162,7 @@ fn action(screen: Screen, input: PadInput) -> Action {
     match (screen, button) {
         (Screen::Title, Some(Button::A)) => Action::Tap(TITLE_TAP),
         (Screen::Title | Screen::LevelSelect, Some(Button::Back)) => Action::Quit,
+        (Screen::Title, Some(Button::B)) => Action::Quit,
         (Screen::LevelSelect, Some(Button::X)) => Action::Tap(END_NEXT_OR_PLAY),
         (Screen::Play, Some(Button::Start)) => Action::Tap(PAUSE_ICON),
         (Screen::Play, _) if left_paddle => Action::Tap(LEFT_PADDLE),

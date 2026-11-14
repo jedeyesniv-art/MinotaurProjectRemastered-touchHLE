@@ -51,9 +51,68 @@ const TURN_WRAP: u32 = 0x3f228;
 const TURN_WRAP_GAME: u32 = 0xee367b47; // vsub.f64 d7, d6, d7
 const TURN_WRAP_FIXED: u32 = 0xee377b46; // vsub.f64 d7, d7, d6
 
-/// `--rescue-turn-fix`: make the ship turn the short way round.
+/// The top speed check in `craft::run` (0x3f2d8-0x3f2f8): the new velocity
+/// (gravity and thrust added, at r8) replaces the old (r6) only if it's under
+/// the top speed (`[ship + 0x904]`), so at top speed any thrust that doesn't
+/// slow the ship is thrown away. Replaced with a call to [craft_tick].
+const SPEED_CHECK: u32 = 0x3f2d8;
+const SPEED_CHECK_GAME: [u32; 2] = [0xe2853c09, 0x4886000f]; // first, last
+const SPEED_CHECK_END: u32 = 0x3f2fc;
+/// The ship's turn rate (0.08 of the way a frame), a literal read only by
+/// `craft::craft()`.
+const TURN_RATE: u32 = 0x40040;
+const TURN_RATE_GAME: f32 = 0.08;
+const SHIP_ANGLE: u32 = 0xec;
+const SHIP_TOP_SPEED: u32 = 0x904;
+
+/// `--rescue-turn-fix`: make the ship turn the short way round (and keep its
+/// angle in range); `--rescue-keep-speed` and `--rescue-turn-speed` change
+/// its handling.
 pub fn apply_patch(env: &mut Environment) {
-    if !env.options.rescue_turn_fix || env.bundle.bundle_identifier() != "uk.co.llamasoft.minorescue" {
+    if env.bundle.bundle_identifier() != "uk.co.llamasoft.minorescue" {
+        return;
+    }
+    if env.options.rescue_turn_speed != 1.0 {
+        let at = Ptr::<f32, true>::from_bits(TURN_RATE);
+        if env.mem.read(at) == TURN_RATE_GAME {
+            env.mem.write(at, TURN_RATE_GAME * env.options.rescue_turn_speed);
+            log!("--rescue-turn-speed: turn rate {}", TURN_RATE_GAME * env.options.rescue_turn_speed);
+        } else {
+            log!("--rescue-turn-speed: unexpected code, is this Minotaur Rescue 1.0? Not patching.");
+        }
+    }
+    if env.options.rescue_turn_fix || env.options.rescue_keep_speed {
+        let first = Ptr::<u32, true>::from_bits(SPEED_CHECK);
+        let last = Ptr::<u32, true>::from_bits(SPEED_CHECK_END - 4);
+        if env.mem.read(first) == SPEED_CHECK_GAME[0] && env.mem.read(last) == SPEED_CHECK_GAME[1] {
+            let host = env.dyld.create_guest_function(
+                &mut env.mem,
+                "_touchHLE_rescue_craft_tick",
+                &(craft_tick as fn(&mut Environment, u32, u32, u32)),
+            );
+            // ARM: r0 = ship, r1 = its velocity, r2 = the new velocity; r0-r3
+            // are free after the block.
+            let code = [
+                0xe1a00005, // mov r0, r5
+                0xe1a01006, // mov r1, r6
+                0xe1a02008, // mov r2, r8
+                0xe59f3004, // ldr r3, [pc, #4]  ; the word after the branch
+                0xe12fff33, // blx r3
+                0xea000002, // b SPEED_CHECK_END
+                host.addr_with_thumb_bit(),
+                0xe1a00000, // nop
+                0xe1a00000, // nop
+            ];
+            for (i, &word) in code.iter().enumerate() {
+                env.mem.write(first + i as u32, word);
+            }
+            env.cpu.invalidate_cache_range(SPEED_CHECK, SPEED_CHECK_END - SPEED_CHECK);
+            log!("--rescue-turn-fix / --rescue-keep-speed: patched the ship's speed check.");
+        } else {
+            log!("--rescue-keep-speed: unexpected code, is this Minotaur Rescue 1.0? Not patching.");
+        }
+    }
+    if !env.options.rescue_turn_fix {
         return;
     }
     let at = Ptr::<u32, true>::from_bits(TURN_WRAP);
@@ -64,6 +123,38 @@ pub fn apply_patch(env: &mut Environment) {
     env.mem.write(at, TURN_WRAP_FIXED);
     env.cpu.invalidate_cache_range(TURN_WRAP, 4);
     log!("--rescue-turn-fix: the ship turns the short way round.");
+}
+
+/// Called by the patched `craft::run` every frame, for each ship, in place of
+/// its top speed check.
+fn craft_tick(env: &mut Environment, ship: u32, velocity: u32, new: u32) {
+    use std::f32::consts::PI;
+    if env.options.rescue_turn_fix {
+        // The angle eases towards a heading in (-3pi/2, pi/2] but is never
+        // brought back into range itself, and the turn wraps the difference
+        // only once: after a turn or two the same way round, the next turn
+        // went the whole way round. Keep it in the heading's range.
+        let at = Ptr::<f32, true>::from_bits(ship + SHIP_ANGLE);
+        let angle = env.mem.read(at);
+        if angle.is_finite() && !(-1.5 * PI..=0.5 * PI).contains(&angle) {
+            env.mem.write(at, (angle + 1.5 * PI).rem_euclid(2.0 * PI) - 1.5 * PI);
+        }
+    }
+    let read = |env: &Environment, a: u32| env.mem.read(Ptr::<f64, false>::from_bits(a));
+    let (x, y) = (read(env, new), read(env, new + 8));
+    let top = env.mem.read(Ptr::<f32, false>::from_bits(ship + SHIP_TOP_SPEED)) as f64;
+    let speed = (x * x + y * y).sqrt();
+    let (x, y) = if speed < top {
+        (x, y)
+    } else if env.options.rescue_keep_speed && speed > 0.0 {
+        // Held at top speed, now heading where the thrust bends it.
+        let scale = top * 0.9999 / speed;
+        (x * scale, y * scale)
+    } else {
+        return;
+    };
+    env.mem.write(Ptr::<f64, true>::from_bits(velocity), x);
+    env.mem.write(Ptr::<f64, true>::from_bits(velocity + 8), y);
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -251,6 +342,7 @@ fn action(screen: Screen, input: PadInput) -> Action {
     match (screen, button) {
         (Screen::Title | Screen::Attract, Some(B::Start)) => Action::Tap(MIDDLE),
         (Screen::Title | Screen::Attract | Screen::MainMenu, Some(B::Back)) => Action::Quit,
+        (Screen::Title | Screen::Attract, Some(B::B)) => Action::Quit,
         (Screen::MainMenu, Some(B::Start)) => Action::Tap(MENU_PLAY_TAP),
         (Screen::MainMenu, Some(B::X)) => Action::Tap(MENU_INFO),
         (Screen::MainMenu, Some(B::Y)) => Action::Tap(MENU_SELECT_GAME),
@@ -446,7 +538,70 @@ fn lift_finger(env: &mut Environment, why: &str) {
     }
 }
 
+/// `--rescue-direct-stick`: the finger holds its drag (from where it went
+/// down) at the stick's direction and push, so the heading and thrust follow
+/// the stick at once. It goes down at the touch area's centre; with the stick
+/// back in its deadzone it lifts (coast).
+fn direct_finger_frame(env: &mut Environment, full: f32) {
+    let active = finger_active();
+    let (sx, sy) = if active { env.window().left_stick_raw() } else { (0.0, 0.0) };
+    let mag = (sx * sx + sy * sy).sqrt();
+    if mag < TOUCH_DEAD {
+        lift_finger(env, if active { "stick let go" } else { "menu or pause" });
+        STATE.with(|s| s.borrow_mut().finger.pushing = false);
+        return;
+    }
+    let (sx, sy) = (sx / mag.max(1.0), sy / mag.max(1.0));
+    // Smooth the stick a little (wobbles), restarting on a new push.
+    let (dx, dy) = STATE.with(|s| {
+        let f = &mut s.borrow_mut().finger;
+        if !f.pushing {
+            f.pushing = true;
+            f.smooth = (sx, sy);
+        } else {
+            let a = 1.0 - (-DT / TOUCH_SMOOTH).exp();
+            f.smooth.0 += (sx - f.smooth.0) * a;
+            f.smooth.1 += (sy - f.smooth.1) * a;
+        }
+        f.smooth
+    });
+    let smag = (dx * dx + dy * dy).sqrt().max(1e-6);
+    let strength = ((smag.min(1.0) - TOUCH_DEAD) / (1.0 - TOUCH_DEAD)).max(0.0).powf(TOUCH_CURVE);
+    // Never so short that the direction is unclear (the game steers by it).
+    let length = (full * strength).max(TOUCH_STEP * 2.0);
+    let centre = (
+        (TOUCH_AREA.0 + TOUCH_AREA.2) / 2.0 * VIEW.0,
+        (TOUCH_AREA.1 + TOUCH_AREA.3) / 2.0 * VIEW.1,
+    );
+    let target = (centre.0 + dx / smag * length, centre.1 + dy / smag * length);
+    let (down, sent) = STATE.with(|s| {
+        let f = &s.borrow().finger;
+        (f.down, f.sent)
+    });
+    if !down {
+        STATE.with(|s| {
+            let f = &mut s.borrow_mut().finger;
+            (f.x, f.y) = centre;
+            f.down = true;
+        });
+        finger_send(env, 0);
+    }
+    // Move in the same frame as going down: the game steers by atan2 of the
+    // drag, which is zero until the finger moves.
+    if !down || (target.0 - sent.0).abs() >= 1.0 || (target.1 - sent.1).abs() >= 1.0 {
+        STATE.with(|s| {
+            let f = &mut s.borrow_mut().finger;
+            (f.x, f.y) = target;
+        });
+        finger_send(env, 1);
+    }
+}
+
 fn finger_frame(env: &mut Environment) {
+    if let Some(full) = env.options.rescue_direct_stick {
+        direct_finger_frame(env, full);
+        return;
+    }
     let active = finger_active();
     let (mut sx, mut sy) = if active { env.window().left_stick_raw() } else { (0.0, 0.0) };
     let mut mag = (sx * sx + sy * sy).sqrt();

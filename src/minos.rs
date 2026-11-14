@@ -67,6 +67,25 @@ const DIFFICULTY_PLUS_TAP: (f32, f32) = (708.0, 567.0);
 const INFO_OR_DONE_TAP: (f32, f32) = (90.0, 978.0);
 const MORE_TAP: (f32, f32) = (678.0, 978.0);
 
+/// Menu focus (`menu_focus.rs`): the buttons of each screen (portrait
+/// points, measured on the user's screenshots) and which starts highlighted.
+const FOCUS_MENU: [[f32; 4]; 6] = [
+    [0.0, 100.0, 180.0, 102.0],   // cavern -
+    [588.0, 100.0, 180.0, 102.0], // cavern +
+    [0.0, 516.0, 180.0, 104.0],   // difficulty -
+    [588.0, 516.0, 180.0, 104.0], // difficulty +
+    [0.0, 758.0, 290.0, 104.0],   // NEW GAME
+    [0.0, 934.0, 180.0, 90.0],    // INFO
+];
+const FOCUS_INFO: [[f32; 4]; 2] = [
+    [0.0, 934.0, 180.0, 90.0],   // DONE
+    [588.0, 934.0, 180.0, 90.0], // MORE
+];
+const FOCUS_PAUSE: [[f32; 4]; 2] = [
+    [200.0, 370.0, 370.0, 120.0], // UNPAWS
+    [250.0, 785.0, 270.0, 120.0], // QUIT
+];
+
 /// iCade button A's letters (pressed, released).
 const ICADE_A: (&str, &str) = ("y", "t");
 
@@ -124,8 +143,10 @@ fn action(screen: Screen, button: Button) -> Action {
         (Screen::Title | Screen::Menu, Button::Start) => Action::ICade,
         (_, Button::A) => Action::ICade,
         (Screen::Title | Screen::Menu, Button::Back) => Action::Quit,
+        (Screen::Title, Button::B) => Action::Quit,
         (Screen::Info, Button::B | Button::Back) => Action::Tap(INFO_OR_DONE_TAP),
         (Screen::Pause, Button::Back) => Action::Tap(QUIT_TAP),
+        (Screen::Pause, Button::B) => Action::Tap(UNPAWS_TAP),
         (Screen::Play, Button::Start) => Action::Tap(PAWS_TAP),
         (Screen::Pause, Button::Start) => Action::Tap(UNPAWS_TAP),
         (Screen::Menu, Button::X) => Action::Tap(INFO_OR_DONE_TAP),
@@ -190,10 +211,21 @@ pub fn frame(env: &mut Environment) {
         *f = f.wrapping_add(1);
         *f
     });
+    crate::menu_focus::frame(env);
     if n % BARS_CHECK_FRAMES == 0 {
         let screen = recognise(env);
-        let pointer = matches!(screen, Screen::Title | Screen::Menu | Screen::Info | Screen::Pause);
-        env.window_mut().set_pad_cursor_enabled(pointer);
+        // The red highlight on the screens with buttons, the pointer on the
+        // title.
+        let focus: Option<(u32, &[[f32; 4]], usize)> = match screen {
+            Screen::Menu => Some((1, &FOCUS_MENU, 4)),
+            Screen::Info => Some((2, &FOCUS_INFO, 1)),
+            Screen::Pause => Some((3, &FOCUS_PAUSE, 0)),
+            _ => None,
+        };
+        crate::menu_focus::set(env, focus);
+        if focus.is_none() {
+            env.window_mut().set_pad_cursor_enabled(screen == Screen::Title);
+        }
         if env.options.edge_bars.is_some() {
             let glow = matches!(screen, Screen::Menu | Screen::Info);
             env.window_mut().set_edge_bars_off(glow);
@@ -243,6 +275,10 @@ pub fn handle_input(env: &mut Environment, input: PadInput, down: bool) {
             Some(Held::ICade) => set_icade(env, |t| t.by_a = false),
             None => (),
         }
+        crate::menu_focus::handle_button(env, button, false);
+        return;
+    }
+    if crate::menu_focus::handle_button(env, button, true) {
         return;
     }
     if HELD.with(|h| h.borrow().contains_key(&button)) {
@@ -269,4 +305,78 @@ pub fn handle_input(env: &mut Environment, input: PadInput, down: bool) {
         }
         Action::Nothing => (),
     }
+}
+
+/// Temporary diagnosis (environment variable `TOUCHHLE_MINOS_SOUND_LOG`):
+/// logs every `AudioSystemPlaySample(sample, volume, loop)` call (Minos 1.x,
+/// armv7, ARM) with what the game's mixer will do with it, to find out why
+/// some sound effects are never heard.
+const PLAY_SAMPLE: u32 = 0x4c4c8;
+const PLAY_SAMPLE_FIRST: [u32; 2] = [0xe92d40f0, 0xe28d700c]; // push {r4-r7, lr}; add r7, sp, #0xc
+const MIXER: u32 = 0x38bfd4;
+
+pub fn apply_sound_log_patch(env: &mut Environment) {
+    use crate::mem::{MutPtr, Ptr};
+    if std::env::var_os("TOUCHHLE_MINOS_SOUND_LOG").is_none()
+        || env.bundle.bundle_identifier() != "uk.co.llamasoft.minos"
+    {
+        return;
+    }
+    let at: MutPtr<u32> = Ptr::from_bits(PLAY_SAMPLE);
+    if env.mem.read(at) != PLAY_SAMPLE_FIRST[0] || env.mem.read(at + 1) != PLAY_SAMPLE_FIRST[1] {
+        log!("Minos sound log: unexpected code, not patching");
+        return;
+    }
+    let host = env.dyld.create_guest_function(
+        &mut env.mem,
+        "_touchHLE_minos_sound_log",
+        &(sound_log as fn(&mut Environment, i32, i32, i32, u32)),
+    );
+    let tramp: MutPtr<u32> = env.mem.alloc(44).cast();
+    let code = [
+        0xe92d500f, // push {r0-r3, ip, lr}
+        0xe1a0300e, // mov r3, lr          ; the caller, for the log
+        0xe59fc014, // ldr ip, [pc, #20]   ; the host function
+        0xe12fff3c, // blx ip
+        0xe8bd500f, // pop {r0-r3, ip, lr}
+        PLAY_SAMPLE_FIRST[0],
+        PLAY_SAMPLE_FIRST[1],
+        0xe51ff004, // ldr pc, [pc, #-4]
+        PLAY_SAMPLE + 8,
+        host.addr_with_thumb_bit(),
+    ];
+    for (i, &word) in code.iter().enumerate() {
+        env.mem.write(tramp + i as u32, word);
+    }
+    env.mem.write(at, 0xe51ff004); // ldr pc, [pc, #-4]
+    env.mem.write(at + 1, tramp.to_bits());
+    env.cpu.invalidate_cache_range(PLAY_SAMPLE, 8);
+    env.cpu.invalidate_cache_range(tramp.to_bits(), 44);
+    log!("Minos sound log: on");
+}
+
+fn sound_log(env: &mut Environment, sample: i32, volume: i32, looped: i32, caller: u32) {
+    use crate::mem::Ptr;
+    let read = |env: &Environment, a: u32| -> i32 { env.mem.read(Ptr::<i32, false>::from_bits(a)) };
+    let entry = MIXER + 0x290 + 28 * sample as u32;
+    let (len, inst, prio, max, always) =
+        (read(env, entry), read(env, entry + 4), read(env, entry + 0xc), read(env, entry + 0x10), read(env, entry + 0x18));
+    let busy = (0..32).filter(|i| read(env, MIXER + 8 + 16 * i) != 0).count();
+    let gate = read(env, MIXER + 0x208);
+    let fate = if always == 0 && gate != 0 {
+        "gated"
+    } else if inst == max && !(0..32).any(|i| read(env, MIXER + 8 + 16 * i) as u32 == entry) {
+        "SILENT (count stuck at max, nothing playing)"
+    } else if inst == max {
+        "restarts oldest"
+    } else if busy < 32 {
+        "plays"
+    } else {
+        let first = (0..32).map(|i| read(env, MIXER + 0x210 + 4 * i)).find(|&p| p > -1);
+        if first.is_some_and(|p| p <= prio) { "DROPPED (voices full)" } else { "steals a voice" }
+    };
+    log!(
+        "Minos sound: sample {} len {} vol {:#x} loop {} inst {}/{} prio {} busy {} from {:#x} -> {}",
+        sample, len, volume, looped, inst, max, prio, busy, caller.wrapping_sub(4), fate
+    );
 }

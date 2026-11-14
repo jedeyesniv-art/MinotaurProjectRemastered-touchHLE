@@ -98,6 +98,8 @@ pub struct Options {
     pub player_name: String,
     /// Private fork: see `--retry-button=` in OPTIONS_HELP.txt.
     pub retry_button: Option<Button>,
+    /// Private fork: see `--quit-button=` in OPTIONS_HELP.txt.
+    pub quit_button: Option<Button>,
     /// Private fork: see `--deflex-pad` in OPTIONS_HELP.txt.
     pub deflex_pad: bool,
     /// Private fork: see `--edge-bars` in OPTIONS_HELP.txt: the width in
@@ -123,6 +125,13 @@ pub struct Options {
     pub rescue_touch_speed: f32,
     /// Private fork: see `--rescue-turn-fix` in OPTIONS_HELP.txt.
     pub rescue_turn_fix: bool,
+    /// Private fork: see `--rescue-direct-stick` in OPTIONS_HELP.txt: the
+    /// drag at full push, in points.
+    pub rescue_direct_stick: Option<f32>,
+    /// Private fork: see `--rescue-keep-speed` in OPTIONS_HELP.txt.
+    pub rescue_keep_speed: bool,
+    /// Private fork: see `--rescue-turn-speed` in OPTIONS_HELP.txt.
+    pub rescue_turn_speed: f32,
     /// Private fork: see `--right-stick-tilt` in OPTIONS_HELP.txt: how far
     /// the steering wheel turns each way, in degrees.
     pub right_stick_tilt: Option<f32>,
@@ -252,6 +261,7 @@ impl Default for Options {
             record_achievements: false,
             player_name: "Player".to_string(),
             retry_button: None,
+            quit_button: None,
             deflex_pad: false,
             fake_classes: Vec::new(),
             edge_bars: None,
@@ -263,6 +273,9 @@ impl Default for Options {
             minotron_pad: false,
             rescue_touch_speed: 1.0,
             rescue_turn_fix: false,
+            rescue_direct_stick: None,
+            rescue_keep_speed: false,
+            rescue_turn_speed: 1.0,
             right_stick_tilt: None,
             tilt_on_left_stick: false,
             ambient_bars: None,
@@ -514,6 +527,20 @@ impl Options {
             self.rescue_pad = true;
         } else if arg == "--minotron-pad" {
             self.minotron_pad = true;
+        } else if arg == "--rescue-keep-speed" {
+            self.rescue_keep_speed = true;
+        } else if arg == "--rescue-direct-stick" {
+            self.rescue_direct_stick = Some(180.0);
+        } else if let Some(value) = arg.strip_prefix("--rescue-direct-stick=") {
+            self.rescue_direct_stick = Some(
+                value
+                    .parse()
+                    .map_err(|_| "--rescue-direct-stick= needs a number of points".to_string())?,
+            );
+        } else if let Some(value) = arg.strip_prefix("--rescue-turn-speed=") {
+            self.rescue_turn_speed = value
+                .parse()
+                .map_err(|_| "--rescue-turn-speed= needs a number".to_string())?;
         } else if arg == "--rescue-turn-fix" {
             self.rescue_turn_fix = true;
         } else if let Some(value) = arg.strip_prefix("--rescue-touch-speed=") {
@@ -540,6 +567,8 @@ impl Options {
                 .filter(|d: &f32| *d > 0.0 && *d <= 180.0)
                 .ok_or_else(|| "--right-stick-tilt= requires degrees from 0 to 180".to_string())?;
             self.right_stick_tilt = Some(degrees);
+        } else if let Some(value) = arg.strip_prefix("--quit-button=") {
+            self.quit_button = Some(parse_button(value, "--quit-button=")?);
         } else if let Some(value) = arg.strip_prefix("--retry-button=") {
             self.retry_button = Some(parse_button(value, "--retry-button=")?);
         } else if let Some(value) = arg.strip_prefix("--exit-button=") {

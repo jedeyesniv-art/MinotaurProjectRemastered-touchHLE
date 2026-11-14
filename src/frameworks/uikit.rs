@@ -149,6 +149,9 @@ pub fn handle_events(env: &mut Environment) -> Option<Instant> {
             Event::ExitButton(down) => {
                 screen_button(env, crate::gridrunner::ScreenButton::Exit, down);
             }
+            Event::QuitButton(down) => {
+                screen_button(env, crate::gridrunner::ScreenButton::Quit, down);
+            }
             Event::RetryButton(down) => {
                 screen_button(env, crate::gridrunner::ScreenButton::Retry, down);
             }
@@ -266,6 +269,7 @@ fn screen_button_finger(env: &Environment, which: crate::gridrunner::ScreenButto
     let button = match which {
         ScreenButton::Exit => env.options.exit_button,
         ScreenButton::Retry => env.options.retry_button,
+        ScreenButton::Quit => env.options.quit_button,
     };
     crate::window::FingerId::ButtonToTouch(button.unwrap())
 }

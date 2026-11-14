@@ -158,6 +158,8 @@ fn icade_analog(env: &mut Environment, game: MutVoidPtr) {
 const START_BUTTON: (u32, u32, u32, u32) = (200, 780, 370, 100);
 const EXIT_SIGN: (u32, u32, u32, u32) = (290, 582, 188, 100);
 const EXIT_TAP: (f32, f32) = (384.0, 633.0);
+/// The splash's GRIDRUNNER logo band.
+const GRIDRUNNER_LOGO: (u32, u32, u32, u32) = (10, 275, 750, 45);
 
 /// Five A Day (same engine): its pause screen's Exit sign and where to tap
 /// it, and the title screen's purple LOCAL HISCORE and lavender TOUCH TO PLAY
@@ -182,6 +184,9 @@ pub enum ScreenButton {
     Exit,
     /// `--retry-button`: Retry from the pause screen.
     Retry,
+    /// `--quit-button`: quit from the title, splash or main menu; nothing
+    /// anywhere else.
+    Quit,
 }
 
 pub enum ScreenAction {
@@ -206,6 +211,7 @@ pub fn screen_button_action(env: &mut Environment, which: ScreenButton) -> Scree
     use crate::window::DeviceOrientation;
 
     match (env.bundle.bundle_identifier(), which) {
+        ("uk.co.llamasoft.deflex", ScreenButton::Quit) => return ScreenAction::Nothing,
         ("uk.co.llamasoft.deflex", _) => return deflex_screen_button_action(env, which),
         (_, ScreenButton::Retry) => return ScreenAction::Nothing,
         _ => (),
@@ -213,22 +219,42 @@ pub fn screen_button_action(env: &mut Environment, which: ScreenButton) -> Scree
     if env.window().current_rotation() != DeviceOrientation::Portrait {
         return ScreenAction::Nothing;
     }
-    if env.bundle.bundle_identifier() == "uk.co.llamasoft.tp" {
-        return five_a_day_exit_button_action(env);
+    let only_quit = matches!(which, ScreenButton::Quit);
+    let action = if env.bundle.bundle_identifier() == "uk.co.llamasoft.tp" {
+        five_a_day_exit_button_action(env, only_quit)
+    } else if env.bundle.bundle_identifier() == "uk.co.llamasoft.sf" {
+        super_ox_wars_exit_button_action(env, only_quit)
+    } else {
+        gridrunner_exit_button_action(env, only_quit)
+    };
+    match action {
+        ScreenAction::Quit => ScreenAction::Quit,
+        _ if only_quit => ScreenAction::Nothing,
+        other => other,
     }
-    if env.bundle.bundle_identifier() == "uk.co.llamasoft.sf" {
-        return super_ox_wars_exit_button_action(env);
-    }
-    gridrunner_exit_button_action(env)
 }
 
-fn gridrunner_exit_button_action(env: &mut Environment) -> ScreenAction {
+fn gridrunner_exit_button_action(env: &mut Environment, only_quit: bool) -> ScreenAction {
     use crate::frameworks::opengles::eagl::read_screen_pixels;
 
     // The START! button is solid blue behind white letters.
     let blue = |r: u8, g: u8, b: u8| b > 200 && r < 60 && g < 60;
     if read_screen_pixels(env, START_BUTTON).is_some_and(|p| fraction(&p, blue) > 0.4) {
         return ScreenAction::Quit;
+    }
+    // The attract splash: the GRIDRUNNER logo's yellow and cyan stripes
+    // across the screen (0.19 and 0.16 on the user's screenshot, 0 on the
+    // menu).
+    let yellow = |r: u8, g: u8, b: u8| r > 170 && g > 150 && b < 80;
+    let cyan = |r: u8, g: u8, b: u8| r < 100 && g > 140 && b > 150;
+    let logo = read_screen_pixels(env, GRIDRUNNER_LOGO);
+    let (logo_yellow, logo_cyan) = logo.map_or((0.0, 0.0), |p| (fraction(&p, yellow), fraction(&p, cyan)));
+    log!("Exit button: Gridrunner logo yellow {:.2} cyan {:.2}", logo_yellow, logo_cyan);
+    if logo_yellow > 0.1 && logo_cyan > 0.08 {
+        return ScreenAction::Quit;
+    }
+    if only_quit {
+        return ScreenAction::Nothing;
     }
     // The Exit sign is mid grey behind white letters.
     let grey = |r: u8, g: u8, b: u8| {
@@ -245,7 +271,7 @@ fn gridrunner_exit_button_action(env: &mut Environment) -> ScreenAction {
 /// (measured 0.13-0.19 and 0.20-0.22 there, 0 on the other attract pages; the
 /// pause screen's TOUCH button matches the lavender only) mean the title
 /// screen, so quit. Anything else, e.g. playing, does nothing.
-fn five_a_day_exit_button_action(env: &mut Environment) -> ScreenAction {
+fn five_a_day_exit_button_action(env: &mut Environment, only_quit: bool) -> ScreenAction {
     use crate::frameworks::opengles::eagl::read_screen_pixels;
 
     let exit_grey = |r: u8, g: u8, b: u8| {
@@ -259,7 +285,7 @@ fn five_a_day_exit_button_action(env: &mut Environment) -> ScreenAction {
     let hiscore = read_screen_pixels(env, FIVE_A_DAY_HISCORE).map(|p| fraction(&p, purple));
     let touch = read_screen_pixels(env, FIVE_A_DAY_TOUCH_TO_PLAY).map(|p| fraction(&p, lavender));
     log!("Exit button: Exit sign {:?}, LOCAL HISCORE {:?}, TOUCH TO PLAY {:?}", exit, hiscore, touch);
-    if exit.is_some_and(|f| f > 0.3) {
+    if exit.is_some_and(|f| f > 0.3) && !only_quit {
         crate::scores::post_running_score(env);
         ScreenAction::Tap(FIVE_A_DAY_EXIT_TAP)
     } else if hiscore.is_some_and(|f| f > 0.06) && touch.is_some_and(|f| f > 0.08) {
@@ -277,7 +303,7 @@ fn five_a_day_exit_button_action(env: &mut Environment) -> ScreenAction {
 /// 0.45 on the menu, at most 0.01 elsewhere) or the attract logo (blue 0.58
 /// and red 0.77, at most 0.05 elsewhere) means quit. Anything else, e.g.
 /// playing or the other attract pages, does nothing.
-fn super_ox_wars_exit_button_action(env: &mut Environment) -> ScreenAction {
+fn super_ox_wars_exit_button_action(env: &mut Environment, only_quit: bool) -> ScreenAction {
     use crate::frameworks::opengles::eagl::read_screen_pixels;
 
     let grey = |r: u8, g: u8, b: u8| r.abs_diff(g) < 14 && g.abs_diff(b) < 14 && (70..=170).contains(&r);
@@ -295,7 +321,7 @@ fn super_ox_wars_exit_button_action(env: &mut Environment) -> ScreenAction {
         "Exit button: EXIT GAME {:?}, START {:?}, logo blue {:?} red {:?}",
         exit, start, logo_blue, logo_red
     );
-    if exit.is_some_and(|f| f > 0.08) {
+    if exit.is_some_and(|f| f > 0.08) && !only_quit {
         ScreenAction::Tap(SOW_EXIT_TAP)
     } else if start.is_some_and(|f| f > 0.25)
         || (logo_blue.is_some_and(|f| f > 0.3) && logo_red.is_some_and(|f| f > 0.3))
@@ -356,6 +382,7 @@ fn deflex_screen_button_action(env: &mut Environment, which: ScreenButton) -> Sc
     let tap = match which {
         ScreenButton::Exit => DEFLEX_QUIT_TAP,
         ScreenButton::Retry => DEFLEX_RETRY_TAP,
+        ScreenButton::Quit => return ScreenAction::Nothing,
     };
     ScreenAction::Tap(from_view_point(env, tap))
 }

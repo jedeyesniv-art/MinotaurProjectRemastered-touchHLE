@@ -258,6 +258,8 @@ pub enum Event {
     ExitButton(bool),
     /// Private fork: the `--retry-button` was pressed (true) or released.
     RetryButton(bool),
+    /// Private fork: `--quit-button` pressed or released.
+    QuitButton(bool),
     /// Private fork: a `--deflex-pad` input was pressed (true) or released.
     PadInput(PadInput, bool),
 }
@@ -400,6 +402,16 @@ pub struct Window {
     pad_last_update: Instant,
     pad_triggers: [bool; 2],
     pad_stick_dir: i8,
+    /// Private fork: menu focus (see `menu_focus.rs`). While on, the left
+    /// stick neither moves the pointer nor sends iCade directions: each push
+    /// (and its repeats) becomes a move, collected by the pad module.
+    menu_focus: bool,
+    menu_nav_dir: (i8, i8),
+    menu_nav_next: Instant,
+    menu_nav_moves: Vec<(i8, i8)>,
+    /// The focused button (x, y, width, height in the app's screen points as
+    /// the user sees them), drawn red.
+    menu_focus_rect: Option<[f32; 4]>,
     virtual_accelerometer_last: Option<(f32, f32, bool)>,
     /// Whether or not we are on the "main" environment stack (rather than
     /// a coroutine stack). Checked in various functions to make sure that
@@ -631,6 +643,11 @@ impl Window {
             pad_cursor_pressed: false,
             pad_last_update: Instant::now(),
             pad_triggers: [false; 2],
+            menu_focus: false,
+            menu_nav_dir: (0, 0),
+            menu_nav_next: Instant::now(),
+            menu_nav_moves: Vec::new(),
+            menu_focus_rect: None,
             pad_stick_dir: 0,
             virtual_accelerometer_last: None,
             on_main_stack: true,
@@ -973,6 +990,13 @@ impl Window {
                         )));
                         continue;
                     }
+                    if Some(button) == options.quit_button {
+                        self.event_queue.push_back(Event::QuitButton(matches!(
+                            event,
+                            E::ControllerButtonDown { .. }
+                        )));
+                        continue;
+                    }
                     if Some(button) == options.retry_button {
                         self.event_queue.push_back(Event::RetryButton(matches!(
                             event,
@@ -1307,6 +1331,7 @@ impl Window {
 
         if options.deflex_pad || options.goat2_pad || options.rescue_pad || options.minotron_pad || options.minos_pad {
             self.update_pad_cursor(options);
+            self.update_menu_nav();
             return;
         }
         if controller_updated && options.right_stick_tilt.is_none() {
@@ -1652,7 +1677,7 @@ impl Window {
         let (x, y, _) = self.get_controller_stick(options, true);
         // Private fork: while the menu pointer is shown the stick is its,
         // so the directions let go.
-        let held = if self.pad_cursor_enabled {
+        let held = if self.pad_cursor_enabled || self.menu_focus {
             [false; 4]
         } else {
             [y < -threshold, x > threshold, y > threshold, x < -threshold]
@@ -2116,7 +2141,7 @@ impl Window {
                 let input = if i == 0 { PadInput::LeftTrigger } else { PadInput::RightTrigger };
                 Some(Some(Event::PadInput(input, held)))
             }
-            E::ControllerAxisMotion { axis: Axis::LeftX, value, .. } if !self.pad_cursor_enabled => {
+            E::ControllerAxisMotion { axis: Axis::LeftX, value, .. } if !self.pad_cursor_enabled && !self.menu_focus => {
                 let x = value as f32 / i16::MAX as f32;
                 let dir = if x < -0.5 {
                     -1
@@ -2157,6 +2182,73 @@ impl Window {
         let [px, py] = matrix.transform([x / w as f32 - 0.5, y / h as f32 - 0.5]);
         let (out_w, out_h) = self.size_unrotated_unscaled();
         (((px + 0.5) * out_w as f32).round(), ((py + 0.5) * out_h as f32).round())
+    }
+
+    /// Private fork: turn menu focus on or off (see `menu_focus.rs`).
+    pub fn set_menu_focus(&mut self, on: bool) {
+        if on != self.menu_focus {
+            self.menu_nav_dir = (0, 0);
+            self.menu_nav_moves.clear();
+            self.pad_stick_dir = 0;
+        }
+        self.menu_focus = on;
+        if !on {
+            self.menu_focus_rect = None;
+        }
+    }
+
+    pub fn menu_focus(&self) -> bool {
+        self.menu_focus
+    }
+
+    pub fn set_menu_focus_rect(&mut self, rect: Option<[f32; 4]>) {
+        self.menu_focus_rect = rect;
+    }
+
+    /// The stick's menu moves since the last call (x, y: -1, 0 or 1).
+    pub fn take_menu_nav(&mut self) -> Vec<(i8, i8)> {
+        std::mem::take(&mut self.menu_nav_moves)
+    }
+
+    /// The focused button in window pixels (left, top, right, bottom; top
+    /// measured from the window's top), for drawing.
+    pub fn menu_focus_screen_rect(&self) -> Option<[f32; 4]> {
+        let [x, y, w, h] = self.menu_focus_rect?;
+        let (vw, vh) = self.view_size();
+        let (px, py, pw, ph) = self.viewport();
+        let sx = |v: f32| px as f32 + v / vw as f32 * pw as f32;
+        let sy = |v: f32| py as f32 + v / vh as f32 * ph as f32;
+        Some([sx(x), sy(y), sx(x + w), sy(y + h)])
+    }
+
+    /// The left stick as four-way menu moves: one on a push, then repeats
+    /// while it's held (after 0.4 s, every 0.15 s).
+    fn update_menu_nav(&mut self) {
+        if !self.menu_focus {
+            return;
+        }
+        let (x, y) = self.left_stick_raw();
+        let (ax, ay) = (x.abs(), y.abs());
+        let held = self.menu_nav_dir != (0, 0);
+        let push = if held { 0.35 } else { 0.55 };
+        let dir = if ax.max(ay) < push {
+            (0, 0)
+        } else if ax >= ay {
+            (x.signum() as i8, 0)
+        } else {
+            (0, y.signum() as i8)
+        };
+        let now = Instant::now();
+        if dir == (0, 0) {
+            self.menu_nav_dir = dir;
+        } else if dir != self.menu_nav_dir {
+            self.menu_nav_dir = dir;
+            self.menu_nav_moves.push(dir);
+            self.menu_nav_next = now + Duration::from_millis(400);
+        } else if now >= self.menu_nav_next {
+            self.menu_nav_moves.push(dir);
+            self.menu_nav_next = now + Duration::from_millis(150);
+        }
     }
 
     /// Private fork, `--deflex-pad`: show or hide the menu pointer. Hiding it

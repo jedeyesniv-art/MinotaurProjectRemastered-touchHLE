@@ -189,6 +189,24 @@ View options:
         which went the long way round (a spin or twitch) whenever the turn
         crossed pointing left, as a left stroke usually does.
 
+    --rescue-direct-stick[=POINTS]
+        (Private fork.) --rescue-pad's finger in play holds its drag at the
+        stick's direction, as long as the push (POINTS at full push, default
+        180), from one spot, instead of stroking like a finger. The game
+        steers and thrusts along the drag from where a touch went down, so the
+        heading and thrust always follow the stick, with no strokes to restart.
+        Back in the centre lets go (coast).
+
+    --rescue-keep-speed
+        (Private fork.) At top speed Minotaur Rescue ignores any thrust that
+        doesn't slow the ship, so it can't change course until friction slows
+        it. With this the ship is held at top speed instead, so pushing
+        sideways bends its course.
+
+    --rescue-turn-speed=FACTOR
+        (Private fork.) How fast the ship turns to its heading, times the
+        game's own (0.08 of the way each frame), e.g. 2.
+
     --rescue-touch-speed=SPEED
         (Private fork.) --rescue-pad's finger speed at full tilt, in screen
         heights per second. Default 1.0.
@@ -219,6 +237,11 @@ View options:
         pause screen and quits touchHLE from the main menu (the START! screen).
         It does nothing anywhere else, e.g. --exit-button=Back. The Esc key does
         the same. (The pad modules quit with Back and Esc too.)
+
+    --quit-button=BUTTON
+        (Private fork, Gridrunner, Five A Day, Super Ox Wars.) This button quits
+        touchHLE from the screens --exit-button quits from (title, splash, main
+        menu) and does nothing anywhere else, e.g. --quit-button=B.
 
     --record-achievements
         (Private fork.) OpenFeint and Game Center are gone, so the games'

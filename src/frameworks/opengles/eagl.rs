@@ -672,6 +672,7 @@ unsafe fn present_renderbuffer(env: &mut Environment, crop: [f32; 4]) {
     let viewport = env.window.as_mut().unwrap().viewport();
     let rotation_matrix = env.window.as_mut().unwrap().rotation_matrix();
     let virtual_cursor_visible_at = env.window.as_mut().unwrap().virtual_cursor_visible_at();
+    let menu_focus_rect = env.window.as_ref().unwrap().menu_focus_screen_rect();
     let bezel = env.window.as_ref().unwrap().bezel();
     let margin = env.window.as_ref().unwrap().margin_pieces();
     let current_ctx = env
@@ -949,6 +950,10 @@ unsafe fn present_renderbuffer(env: &mut Environment, crop: [f32; 4]) {
         }),
         env.options.trim_edges,
     );
+    // Private fork: the focused menu button, drawn red.
+    if let Some(rect) = menu_focus_rect {
+        crate::gles::present::draw_menu_focus(gles, viewport, rect);
+    }
     // Private fork, --record-achievements: the unlock banner over the picture,
     // its texture made again for each new banner.
     crate::achievements::banner(|number, pixels, size, alpha| {
