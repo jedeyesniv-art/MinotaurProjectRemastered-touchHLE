@@ -74,6 +74,8 @@ pub(super) struct EAGLContextHostObject {
     bezel_texture: Option<GLuint>,
     /// Private fork: the achievement banner's texture and its number.
     banner_texture: Option<(GLuint, u32)>,
+    /// Private fork, `--speed-adjust`: the speed card's texture and number.
+    speed_texture: Option<(GLuint, u32)>,
     /// Private fork: see `--sharp-scaling`.
     sharp_scaler: SharpScaler,
     /// Private fork: see `--ambient-bars`.
@@ -103,6 +105,7 @@ pub const CLASSES: ClassExports = objc_classes! {
         mapped_buffers: HashMap::new(),
         bezel_texture: None,
         banner_texture: None,
+        speed_texture: None,
         sharp_scaler: SharpScaler::default(),
         ambient_glow: AmbientGlow::default(),
         edge_bars: EdgeBars::default(),
@@ -316,6 +319,7 @@ pub const CLASSES: ClassExports = objc_classes! {
     if let Some(every) = env.options.screenshot_every {
         save_screenshot_if_due(env, every);
     }
+    crate::speed::frame(env);
     if env.options.deflex_pad {
         crate::deflex::frame(env);
     }
@@ -688,6 +692,12 @@ unsafe fn present_renderbuffer(env: &mut Environment, crop: [f32; 4]) {
         .objc
         .borrow::<EAGLContextHostObject>(current_ctx)
         .banner_texture;
+    let mut speed_texture = env
+        .objc
+        .borrow::<EAGLContextHostObject>(current_ctx)
+        .speed_texture;
+    // Private fork, --speed-adjust: its card, if the pause screen is up.
+    let speed_card = crate::speed::card(env, |number, pixels, size, alpha| (number, pixels.to_vec(), size, alpha));
     let mut sharp_scaler = env
         .objc
         .borrow::<EAGLContextHostObject>(current_ctx)
@@ -954,6 +964,18 @@ unsafe fn present_renderbuffer(env: &mut Environment, crop: [f32; 4]) {
     if let Some(rect) = menu_focus_rect {
         crate::gles::present::draw_menu_focus(gles, viewport, rect);
     }
+    // Private fork, --speed-adjust: the speed card at the bottom of the
+    // picture while paused (narrow in landscape, clear of Minotron's QUIT).
+    if let Some((number, pixels, size, alpha)) = speed_card {
+        if speed_texture.map(|(_, n)| n) != Some(number) {
+            if let Some((old, _)) = speed_texture {
+                gles.DeleteTextures(1, &old);
+            }
+            speed_texture = Some((upload_banner(gles, &pixels, size), number));
+        }
+        let share = if viewport.2 > viewport.3 { 0.4 } else { 0.6 };
+        crate::gles::present::draw_card(gles, viewport, speed_texture.unwrap().0, size, alpha, share, true);
+    }
     // Private fork, --record-achievements: the unlock banner over the picture,
     // its texture made again for each new banner.
     crate::achievements::banner(|number, pixels, size, alpha| {
@@ -1057,6 +1079,7 @@ unsafe fn present_renderbuffer(env: &mut Environment, crop: [f32; 4]) {
     let host_object = env.objc.borrow_mut::<EAGLContextHostObject>(current_ctx);
     host_object.bezel_texture = bezel_texture;
     host_object.banner_texture = banner_texture;
+    host_object.speed_texture = speed_texture;
     host_object.sharp_scaler = sharp_scaler;
     host_object.ambient_glow = ambient_glow;
     host_object.edge_bars = edge_bars_state;

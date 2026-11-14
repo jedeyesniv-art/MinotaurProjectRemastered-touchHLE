@@ -140,8 +140,24 @@ fn title(app_id: &str, achievement: &str) -> Option<String> {
 
 /// Draws the banner's picture and starts showing it.
 fn show_banner(title: &Option<String>) {
-    use crate::font::{Font, TextAlignment};
+    let lines: Vec<(f32, &str, f32, [f32; 3])> = match title {
+        Some(title) => vec![
+            (34.0, "ACHIEVEMENT UNLOCKED", 24.0, [1.0, 0.8, 0.3]),
+            (60.0, title, 78.0, [1.0, 1.0, 1.0]),
+        ],
+        None => vec![(60.0, "Achievement unlocked!", 52.0, [1.0, 0.8, 0.3])],
+    };
     let (w, h) = (1000u32, 180u32);
+    let bytes = render_card((w, h), &lines);
+    static NEXT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(1);
+    let number = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    BANNER.with(|b| *b.borrow_mut() = Some((number, bytes, (w, h), Instant::now())));
+}
+
+/// A navy card with a gold edge and rounded corners, with lines of text
+/// (size, text, top, colour) centred on it: RGBA bytes, premultiplied.
+pub fn render_card((w, h): (u32, u32), lines: &[(f32, &str, f32, [f32; 3])]) -> Vec<u8> {
+    use crate::font::{Font, TextAlignment};
     let mut px = vec![0f32; (w * h * 4) as usize];
     // a navy card with a gold edge and rounded corners
     let (radius, edge) = (28.0f32, 4.0f32);
@@ -180,17 +196,10 @@ fn show_banner(title: &Option<String>) {
         });
     };
     let font = Font::sans_bold();
-    match title {
-        Some(title) => {
-            text(&font, 34.0, "ACHIEVEMENT UNLOCKED", 24.0, [1.0, 0.8, 0.3]);
-            text(&font, 60.0, title, 78.0, [1.0, 1.0, 1.0]);
-        }
-        None => text(&font, 60.0, "Achievement unlocked!", 52.0, [1.0, 0.8, 0.3]),
+    for &(size, line, top, colour) in lines {
+        text(&font, size, line, top, colour);
     }
-    let bytes = px.iter().map(|v| (v.clamp(0.0, 1.0) * 255.0).round() as u8).collect();
-    static NEXT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(1);
-    let number = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    BANNER.with(|b| *b.borrow_mut() = Some((number, bytes, (w, h), Instant::now())));
+    px.iter().map(|v| (v.clamp(0.0, 1.0) * 255.0).round() as u8).collect()
 }
 
 /// The banner to draw this frame, if one is showing: its number (new for

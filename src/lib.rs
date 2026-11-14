@@ -49,6 +49,7 @@ mod minotron;
 mod rescue;
 mod achievements;
 mod scores;
+mod speed;
 mod gridrunner;
 mod image;
 mod libc;

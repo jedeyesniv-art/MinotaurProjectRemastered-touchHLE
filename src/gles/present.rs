@@ -952,17 +952,33 @@ pub unsafe fn draw_banner(
     gles: &mut dyn GLES,
     viewport: (u32, u32, u32, u32),
     texture: u32,
+    size: (u32, u32),
+    alpha: f32,
+) {
+    // 80% of the picture's width (60% of a wide one), 4% from its top
+    let (vw, vh) = (viewport.2, viewport.3);
+    draw_card(gles, viewport, texture, size, alpha, if vw > vh { 0.6 } else { 0.8 }, false);
+}
+
+/// Private fork: draw a card picture centred across the picture, `share` of
+/// its width, 4% from its top or (`bottom`) its bottom.
+pub unsafe fn draw_card(
+    gles: &mut dyn GLES,
+    viewport: (u32, u32, u32, u32),
+    texture: u32,
     (width, height): (u32, u32),
     alpha: f32,
+    share: f32,
+    bottom: bool,
 ) {
     use gles11::types::*;
     let (vx, vy, vw, vh) = viewport;
     gles.Viewport(vx as _, vy as _, vw as _, vh as _);
-    // 80% of the picture's width (60% of a wide one), 4% from its top
-    let bw = vw as f32 * if vw > vh { 0.6 } else { 0.8 };
+    let bw = vw as f32 * share;
     let bh = bw * height as f32 / width as f32;
     let (x0, x1) = ((vw as f32 - bw) / 2.0, (vw as f32 + bw) / 2.0);
-    let (y0, y1) = (vh as f32 * 0.04, vh as f32 * 0.04 + bh);
+    let top = if bottom { vh as f32 * 0.96 - bh } else { vh as f32 * 0.04 };
+    let (y0, y1) = (top, top + bh);
     let nx = |x: f32| x / (vw as f32 / 2.0) - 1.0;
     let ny = |y: f32| 1.0 - y / (vh as f32 / 2.0);
     let vertices: [f32; 12] = [

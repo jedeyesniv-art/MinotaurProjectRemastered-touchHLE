@@ -76,6 +76,9 @@ const FIRE_DOWN: u32 = 0x80;
 const FIRE_RIGHT: u32 = 0x100;
 const FIRE_BITS: u32 = FIRE_LEFT | FIRE_UP | FIRE_DOWN | FIRE_RIGHT;
 
+/// The pad's move speed, as a share of the game's top speed: the user's
+/// choice with `--speed-adjust` (2026-11-14), now its 100%.
+const PAD_SPEED: f64 = 0.9;
 /// The left stick's deadzone (radial); past it, speed rises in a straight
 /// line to full at the edge.
 const MOVE_DEAD: f32 = 0.15;
@@ -279,6 +282,11 @@ fn screen_now(env: &mut Environment) -> Screen {
     })
 }
 
+/// `--speed-adjust`: whether the pause screen is showing.
+pub fn paused() -> bool {
+    current_screen() == Some(Screen::Pause)
+}
+
 fn current_screen() -> Option<Screen> {
     STATE.with(|s| s.borrow().screen)
 }
@@ -307,13 +315,15 @@ fn tick(env: &mut Environment, player: MutVoidPtr) {
     // Outside play the left stick is the pointer's, and the right does
     // nothing.
     let play = current_screen() == Some(Screen::Play);
+    // --speed-adjust: the player's own speed.
+    let top = SPEED * PAD_SPEED * crate::speed::factor(env) as f64;
 
     // Movement.
     let (sx, sy) = if play { env.window().left_stick_raw() } else { (0.0, 0.0) };
     let mag = (sx * sx + sy * sy).sqrt();
     let moving = STATE.with(|s| s.borrow().moving);
     if mag > MOVE_DEAD {
-        let speed = ((mag - MOVE_DEAD) / (1.0 - MOVE_DEAD)).min(1.0) as f64 * SPEED;
+        let speed = ((mag - MOVE_DEAD) / (1.0 - MOVE_DEAD)).min(1.0) as f64 * top;
         env.mem.write(vx_ptr, sx as f64 / mag as f64 * speed);
         env.mem.write(vy_ptr, sy as f64 / mag as f64 * speed);
         STATE.with(|s| s.borrow_mut().moving = true);
@@ -327,9 +337,9 @@ fn tick(env: &mut Environment, player: MutVoidPtr) {
         if icade & 0xf != 0 {
             let axis = |neg: u32, pos: u32| {
                 if icade & pos != 0 {
-                    SPEED
+                    top
                 } else if icade & neg != 0 {
-                    -SPEED
+                    -top
                 } else {
                     0.0
                 }

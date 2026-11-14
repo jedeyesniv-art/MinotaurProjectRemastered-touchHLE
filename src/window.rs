@@ -1970,6 +1970,14 @@ impl Window {
 
     /// Private fork: how far the right trigger is pulled, from 0 to 1 (the
     /// most of any controller).
+    pub fn left_trigger(&self) -> f32 {
+        self.controllers
+            .iter()
+            .map(|c| c.axis(sdl2::controller::Axis::TriggerLeft) as f32 / i16::MAX as f32)
+            .fold(0.0, f32::max)
+            .clamp(0.0, 1.0)
+    }
+
     pub fn right_trigger(&self) -> f32 {
         self.controllers
             .iter()

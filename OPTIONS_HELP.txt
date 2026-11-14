@@ -243,6 +243,13 @@ View options:
         touchHLE from the screens --exit-button quits from (title, splash, main
         menu) and does nothing anywhere else, e.g. --quit-button=B.
 
+    --speed-adjust
+        (Private fork: Gridrunner, Super Ox Wars, Minotron 2112 iOS.) On the
+        game's pause screen, LT and RT make the ship slower or faster (50% to
+        150% of the usual tuning, in steps of 10%), shown at the bottom of the
+        picture and kept per game in touchHLE_speed.txt. Gridrunner and Super
+        Ox Wars need --icade-analog; Minotron --minotron-pad.
+
     --record-achievements
         (Private fork.) OpenFeint and Game Center are gone, so the games'
         achievement unlocks go nowhere; with this, each unlock is added to

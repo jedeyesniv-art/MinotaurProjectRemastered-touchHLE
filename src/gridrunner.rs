@@ -114,7 +114,9 @@ pub fn apply_patch(env: &mut Environment) {
 /// Called by the patched game once per tick with its game struct.
 fn icade_analog(env: &mut Environment, game: MutVoidPtr) {
     let (accel, top_speed) = env.options.icade_analog.unwrap();
-    let (accel, top_speed) = (accel as f64, top_speed as f64);
+    // --speed-adjust: the player's own speed, top speed and the climb to it.
+    let factor = crate::speed::factor(env) as f64;
+    let (accel, top_speed) = (accel as f64 * factor, top_speed as f64 * factor);
     let (stick_x, stick_y) = env.window().left_stick(&env.options);
 
     let layout = layout(env).unwrap();
@@ -330,6 +332,25 @@ fn super_ox_wars_exit_button_action(env: &mut Environment, only_quit: bool) -> S
     } else {
         ScreenAction::Wait
     }
+}
+
+/// `--speed-adjust`: whether the pause screen is showing (upright portrait;
+/// Gridrunner's grey Exit sign, Super Ox Wars' pale EXIT GAME sign, as for
+/// `--exit-button`).
+pub(crate) fn pause_showing(env: &mut Environment) -> bool {
+    use crate::frameworks::opengles::eagl::read_screen_pixels;
+    if env.window().current_rotation() != crate::window::DeviceOrientation::Portrait {
+        return false;
+    }
+    if env.bundle.bundle_identifier() == "uk.co.llamasoft.sf" {
+        let pale = |r: u8, g: u8, b: u8| {
+            let (hi, lo) = (r.max(g).max(b), r.min(g).min(b));
+            (70..=235).contains(&hi) && lo as f32 >= 0.6 * hi as f32
+        };
+        return read_screen_pixels(env, SOW_EXIT_SIGN).is_some_and(|p| fraction(&p, pale) > 0.08);
+    }
+    let grey = |r: u8, g: u8, b: u8| r.abs_diff(g) < 12 && g.abs_diff(b) < 12 && (60..120).contains(&r);
+    read_screen_pixels(env, EXIT_SIGN).is_some_and(|p| fraction(&p, grey) > 0.35)
 }
 
 /// Converts a point in the screen as the user sees it (e.g. 1024x768 for a

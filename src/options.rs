@@ -100,6 +100,8 @@ pub struct Options {
     pub retry_button: Option<Button>,
     /// Private fork: see `--quit-button=` in OPTIONS_HELP.txt.
     pub quit_button: Option<Button>,
+    /// Private fork: see `--speed-adjust` in OPTIONS_HELP.txt.
+    pub speed_adjust: bool,
     /// Private fork: see `--deflex-pad` in OPTIONS_HELP.txt.
     pub deflex_pad: bool,
     /// Private fork: see `--edge-bars` in OPTIONS_HELP.txt: the width in
@@ -262,6 +264,7 @@ impl Default for Options {
             player_name: "Player".to_string(),
             retry_button: None,
             quit_button: None,
+            speed_adjust: false,
             deflex_pad: false,
             fake_classes: Vec::new(),
             edge_bars: None,
@@ -567,6 +570,8 @@ impl Options {
                 .filter(|d: &f32| *d > 0.0 && *d <= 180.0)
                 .ok_or_else(|| "--right-stick-tilt= requires degrees from 0 to 180".to_string())?;
             self.right_stick_tilt = Some(degrees);
+        } else if arg == "--speed-adjust" {
+            self.speed_adjust = true;
         } else if let Some(value) = arg.strip_prefix("--quit-button=") {
             self.quit_button = Some(parse_button(value, "--quit-button=")?);
         } else if let Some(value) = arg.strip_prefix("--retry-button=") {
